@@ -81,7 +81,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Shift+Tab: cycle forward ──────────────────
 
-	pi.registerShortcut("shift+tab", {
+	pi.registerShortcut("ctrl+;", {
 		description: "Cycle operational mode",
 		handler: async (ctx) => {
 			setMode(nextMode(currentMode), ctx);
