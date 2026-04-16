@@ -21,31 +21,31 @@ import { fileURLToPath } from "url";
 // Value = theme name from .pi/themes/<value>.json
 //
 export const THEME_MAP: Record<string, string> = {
-	"agent-banner":       "midnight-ocean",
-	"agent-chain":        "midnight-ocean",
-	"agent-team":         "midnight-ocean",
-	"cross-agent":        "midnight-ocean",
-	"damage-control":     "midnight-ocean",
-	"minimal":            "midnight-ocean",
-	"pi-pi":              "midnight-ocean",
-	"pure-focus":         "midnight-ocean",
-	"purpose-gate":       "midnight-ocean",
-	"session-replay":     "midnight-ocean",
-	"subagent-widget":    "midnight-ocean",
-	"system-select":      "midnight-ocean",
-	"theme-cycler":       "midnight-ocean",
-	"mic":                "midnight-ocean",
-	"pipeline-team":      "midnight-ocean",
-	"tasks":              "midnight-ocean",
-	"plan-mode":          "midnight-ocean",
-	"tool-counter":       "midnight-ocean",
-	"tool-counter-widget":"midnight-ocean",
-	"footer":             "midnight-ocean",
-	"mode-cycler":        "midnight-ocean",
-	"user-question":      "midnight-ocean",
-	"plan-viewer":        "midnight-ocean",
-	"completion-report":  "midnight-ocean",
-	"sounds":             "midnight-ocean",
+	"agent-banner":       "catppuccin-mocha",
+	"agent-chain":        "catppuccin-mocha",
+	"agent-team":         "catppuccin-mocha",
+	"cross-agent":        "catppuccin-mocha",
+	"damage-control":     "catppuccin-mocha",
+	"minimal":            "catppuccin-mocha",
+	"pi-pi":              "catppuccin-mocha",
+	"pure-focus":         "catppuccin-mocha",
+	"purpose-gate":       "catppuccin-mocha",
+	"session-replay":     "catppuccin-mocha",
+	"subagent-widget":    "catppuccin-mocha",
+	"system-select":      "catppuccin-mocha",
+	"theme-cycler":       "catppuccin-mocha",
+	"mic":                "catppuccin-mocha",
+	"pipeline-team":      "catppuccin-mocha",
+	"tasks":              "catppuccin-mocha",
+	"plan-mode":          "catppuccin-mocha",
+	"tool-counter":       "catppuccin-mocha",
+	"tool-counter-widget":"catppuccin-mocha",
+	"footer":             "catppuccin-mocha",
+	"mode-cycler":        "catppuccin-mocha",
+	"user-question":      "catppuccin-mocha",
+	"plan-viewer":        "catppuccin-mocha",
+	"completion-report":  "catppuccin-mocha",
+	"sounds":             "catppuccin-mocha",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -84,13 +84,13 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
 	let themeName = THEME_MAP[name];
 	
 	if (!themeName) {
-		themeName = "midnight-ocean";
+		themeName = "catppuccin-mocha";
 	}
 
 	const result = ctx.ui.setTheme(themeName);
 
-	if (!result.success && themeName !== "midnight-ocean") {
-		return ctx.ui.setTheme("midnight-ocean").success;
+	if (!result.success && themeName !== "catppuccin-mocha") {
+		return ctx.ui.setTheme("catppuccin-mocha").success;
 	}
 	
 	return result.success;
