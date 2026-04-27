@@ -66,7 +66,55 @@
     historyRestore: document.getElementById('history-restore'),
     previewBannerOrig: document.getElementById('preview-banner-original'),
     previewBannerResult: document.getElementById('preview-banner-result'),
+    btnThemeToggle: document.getElementById('btn-theme-toggle'),
   };
+
+  // --- Theme Toggle ---
+
+  var THEME_KEY = 'tt-theme';
+
+  function getSystemTheme() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function applyTheme(mode) {
+    document.body.classList.remove('light', 'dark');
+    if (mode === 'light' || mode === 'dark') {
+      document.body.classList.add(mode);
+    }
+    // Update icon
+    if (els.btnThemeToggle) {
+      var icon = els.btnThemeToggle.querySelector('[data-lucide]');
+      if (icon) {
+        var current = mode === 'light' || mode === 'dark' ? mode : getSystemTheme();
+        icon.setAttribute('data-lucide', current === 'dark' ? 'moon' : 'sun');
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+  }
+
+  function cycleThemeMode() {
+    var current = localStorage.getItem(THEME_KEY);
+    var next;
+    if (!current) next = 'light';
+    else if (current === 'light') next = 'dark';
+    else next = null;
+    if (next) localStorage.setItem(THEME_KEY, next);
+    else localStorage.removeItem(THEME_KEY);
+    applyTheme(next);
+  }
+
+  // Apply stored or system theme on load
+  applyTheme(localStorage.getItem(THEME_KEY));
+
+  if (els.btnThemeToggle) {
+    els.btnThemeToggle.addEventListener('click', cycleThemeMode);
+  }
+
+  // React to system theme changes when in auto mode
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+    if (!localStorage.getItem(THEME_KEY)) applyTheme(null);
+  });
 
   // --- State ---
 

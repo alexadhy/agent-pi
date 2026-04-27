@@ -1,56 +1,60 @@
 {
   "default": {
-    "provider": "anthropic",
-    "model": "claude-haiku-4-5-20251001"
+    "provider": "opencode-go",
+    "model": "minimax-m2.7"
   },
   "agents": {
     "scout": {
-      "provider": "x-ai",
-      "model": "grok-4.1-fast"
+      "provider": "opencode-go",
+      "model": "deepseek-v4-flash"
     },
     "ranger": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "opencode-go",
+      "model": "qwen3.5-plus"
     },
     "builder": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5"
+      "provider": "opencode-go",
+      "model": "kimi-k2.6"
+    },
+    "documenter": {
+      "provider": "opencode-go",
+      "model": "mimo-v2.5-pro"
     },
     "paladin": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-6"
+      "provider": "opencode-go",
+      "model": "kimi-k2.6"
     },
     "reviewer": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-6"
+      "provider": "opencode-go",
+      "model": "kimi-k2.6"
     },
     "warden": {
-      "provider": "anthropic",
-      "model": "claude-opus-4-6"
+      "provider": "opencode-go",
+      "model": "kimi-k2.6"
     },
     "planner": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "opencode-go",
+      "model": "mimo-v2.5-pro"
     },
     "tester": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "opencode-go",
+      "model": "mimo-v2.5-pro"
     },
     "herald": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "opencode-go",
+      "model": "mimo-v2.5-pro"
     },
     "red-team": {
-      "provider": "openai-codex",
-      "model": "gpt-5.4"
+      "provider": "opencode-go",
+      "model": "mimo-v2.5-pro"
     },
     "knight": {
       "provider": "openai-codex",
       "model": "gpt-5.4"
     },
     "rlm-subcall": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5"
+      "provider": "opencode-go",
+      "model": "mimo-v2.5-pro"
     }
   }
 }

@@ -21,31 +21,31 @@ import { fileURLToPath } from "url";
 // Value = theme name from .pi/themes/<value>.json
 //
 export const THEME_MAP: Record<string, string> = {
-	"agent-banner":       "catppuccin-mocha",
-	"agent-chain":        "catppuccin-mocha",
-	"agent-team":         "catppuccin-mocha",
-	"cross-agent":        "catppuccin-mocha",
-	"damage-control":     "catppuccin-mocha",
-	"minimal":            "catppuccin-mocha",
-	"pi-pi":              "catppuccin-mocha",
-	"pure-focus":         "catppuccin-mocha",
-	"purpose-gate":       "catppuccin-mocha",
-	"session-replay":     "catppuccin-mocha",
-	"subagent-widget":    "catppuccin-mocha",
-	"system-select":      "catppuccin-mocha",
-	"theme-cycler":       "catppuccin-mocha",
-	"mic":                "catppuccin-mocha",
-	"pipeline-team":      "catppuccin-mocha",
-	"tasks":              "catppuccin-mocha",
-	"plan-mode":          "catppuccin-mocha",
-	"tool-counter":       "catppuccin-mocha",
-	"tool-counter-widget":"catppuccin-mocha",
-	"footer":             "catppuccin-mocha",
-	"mode-cycler":        "catppuccin-mocha",
-	"user-question":      "catppuccin-mocha",
-	"plan-viewer":        "catppuccin-mocha",
-	"completion-report":  "catppuccin-mocha",
-	"sounds":             "catppuccin-mocha",
+	"agent-banner":       "catppuccin-macchiato",
+	"agent-chain":        "catppuccin-macchiato",
+	"agent-team":         "catppuccin-macchiato",
+	"cross-agent":        "catppuccin-macchiato",
+	"damage-control":     "catppuccin-macchiato",
+	"minimal":            "catppuccin-macchiato",
+	"pi-pi":              "catppuccin-macchiato",
+	"pure-focus":         "catppuccin-macchiato",
+	"purpose-gate":       "catppuccin-macchiato",
+	"session-replay":     "catppuccin-macchiato",
+	"subagent-widget":    "catppuccin-macchiato",
+	"system-select":      "catppuccin-macchiato",
+	"theme-cycler":       "catppuccin-macchiato",
+	"mic":                "catppuccin-macchiato",
+	"pipeline-team":      "catppuccin-macchiato",
+	"tasks":              "catppuccin-macchiato",
+	"plan-mode":          "catppuccin-macchiato",
+	"tool-counter":       "catppuccin-macchiato",
+	"tool-counter-widget":"catppuccin-macchiato",
+	"footer":             "catppuccin-macchiato",
+	"mode-cycler":        "catppuccin-macchiato",
+	"user-question":      "catppuccin-macchiato",
+	"plan-viewer":        "catppuccin-macchiato",
+	"completion-report":  "catppuccin-macchiato",
+	"sounds":             "catppuccin-macchiato",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
 	
 	// If there are multiple extensions stacked in 'ipi', they each fire session_start
 	// and try to apply their own mapped theme. The LAST one to fire wins.
-	// Since system-select is last in the ipi alias array, it was setting 'catppuccin-mocha'.
+	// Since system-select is last in the ipi alias array, it was setting 'catppuccin-macchiato'.
 	
 	// We want to skip theme application for all secondary extensions if they are stacked,
 	// so the primary extension (first in the array) dictates the theme.
@@ -84,13 +84,14 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
 	let themeName = THEME_MAP[name];
 	
 	if (!themeName) {
-		themeName = "catppuccin-mocha";
+		themeName = "catppuccin-macchiato";
 	}
 
 	const result = ctx.ui.setTheme(themeName);
 
-	if (!result.success && themeName !== "catppuccin-mocha") {
-		return ctx.ui.setTheme("catppuccin-mocha").success;
+	// if (!result.success && themeName !== "catppuccin-macchiato") {
+  if (!result.success) {
+		return ctx.ui.setTheme("catppuccin-macchiato").success;
 	}
 	
 	return result.success;

@@ -29,8 +29,8 @@ export interface AgentModelsConfig {
 // ── Model Config Loader ──────────────────────────────────────────────────────
 
 const HARDCODED_DEFAULT: AgentModelEntry = {
-	provider: "anthropic",
-	model: "claude-haiku-4-5-20251001",
+	provider: "opencode-go",
+	model: "minimax-m2.7",
 };
 
 /**

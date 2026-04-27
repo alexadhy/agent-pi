@@ -1,29 +1,30 @@
-/* Text Tools — Dark theme, blue accents, elegant utility aesthetic */
+/* Text Tools — Catppuccin themed (Mocha dark / Latte light) */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* --- Dark: Catppuccin Mocha (default) --- */
 :root {
-  --bg-primary: #0D1117;
-  --bg-surface: #161B22;
-  --bg-elevated: #1C2129;
-  --bg-input: #0D1117;
+  --bg-primary: #1e1e2e;
+  --bg-surface: #181825;
+  --bg-elevated: #313244;
+  --bg-input: #1e1e2e;
 
-  --border-default: #21262D;
-  --border-subtle: #30363D;
+  --border-default: #45475a;
+  --border-subtle: #585b70;
 
-  --text-primary: #C9D1D9;
-  --text-secondary: #8B949E;
-  --text-muted: #484F58;
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #6c7086;
 
-  --accent: #6B8AFF;
-  --accent-hover: #4A6BDF;
-  --accent-active: #8BA3FF;
-  --accent-subtle: rgba(107, 138, 255, 0.12);
+  --accent: #89b4fa;
+  --accent-hover: #74c7ec;
+  --accent-active: #b4befe;
+  --accent-subtle: rgba(137, 180, 250, 0.12);
 
-  --diff-removed-bg: rgba(248, 81, 73, 0.15);
-  --diff-removed-text: #FFA198;
-  --diff-added-bg: rgba(63, 185, 80, 0.15);
-  --diff-added-text: #7EE787;
+  --diff-removed-bg: rgba(243, 139, 168, 0.15);
+  --diff-removed-text: #f38ba8;
+  --diff-added-bg: rgba(166, 227, 161, 0.15);
+  --diff-added-text: #a6e3a1;
 
   --radius-panel: 6px;
   --radius-btn: 4px;
@@ -32,6 +33,73 @@
 
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Helvetica, Arial, sans-serif;
+}
+
+/* --- Light: Catppuccin Latte (system preference) --- */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-primary: #eff1f5;
+    --bg-surface: #e6e9ef;
+    --bg-elevated: #ccd0da;
+    --bg-input: #eff1f5;
+
+    --border-default: #bcc0cc;
+    --border-subtle: #acb0be;
+
+    --text-primary: #4c4f69;
+    --text-secondary: #5c5f77;
+    --text-muted: #9ca0b0;
+
+    --accent: #1e66f5;
+    --accent-hover: #209fb5;
+    --accent-active: #7287fd;
+    --accent-subtle: rgba(30, 102, 245, 0.12);
+
+    --diff-removed-bg: rgba(210, 15, 57, 0.12);
+    --diff-removed-text: #d20f39;
+    --diff-added-bg: rgba(64, 160, 43, 0.12);
+    --diff-added-text: #40a02b;
+  }
+}
+
+/* --- Manual override: body.dark / body.light class --- */
+body.dark {
+  --bg-primary: #1e1e2e;
+  --bg-surface: #181825;
+  --bg-elevated: #313244;
+  --bg-input: #1e1e2e;
+  --border-default: #45475a;
+  --border-subtle: #585b70;
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #6c7086;
+  --accent: #89b4fa;
+  --accent-hover: #74c7ec;
+  --accent-active: #b4befe;
+  --accent-subtle: rgba(137, 180, 250, 0.12);
+  --diff-removed-bg: rgba(243, 139, 168, 0.15);
+  --diff-removed-text: #f38ba8;
+  --diff-added-bg: rgba(166, 227, 161, 0.15);
+  --diff-added-text: #a6e3a1;
+}
+body.light {
+  --bg-primary: #eff1f5;
+  --bg-surface: #e6e9ef;
+  --bg-elevated: #ccd0da;
+  --bg-input: #eff1f5;
+  --border-default: #bcc0cc;
+  --border-subtle: #acb0be;
+  --text-primary: #4c4f69;
+  --text-secondary: #5c5f77;
+  --text-muted: #9ca0b0;
+  --accent: #1e66f5;
+  --accent-hover: #209fb5;
+  --accent-active: #7287fd;
+  --accent-subtle: rgba(30, 102, 245, 0.12);
+  --diff-removed-bg: rgba(210, 15, 57, 0.12);
+  --diff-removed-text: #d20f39;
+  --diff-added-bg: rgba(64, 160, 43, 0.12);
+  --diff-added-text: #40a02b;
 }
 
 html, body { height: 100%; background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; overflow: hidden; }

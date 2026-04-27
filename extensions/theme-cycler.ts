@@ -1,10 +1,10 @@
-// ABOUTME: Cycles through available themes with Ctrl+X/Q shortcuts and /theme command.
+// ABOUTME: Cycles through available themes with Alt+T/Q shortcuts and /theme command.
 // ABOUTME: Shows color swatch preview on switch and persists selection to settings.json.
 /**
  * Theme Cycler — Keyboard shortcuts to cycle through available themes
  *
  * Shortcuts:
- *   Ctrl+X          — Cycle theme forward
+ *   Alt+T            — Cycle theme forward
  *   Ctrl+Q          — Cycle theme backward
  *
  * Commands:
@@ -110,7 +110,7 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Shortcuts ---
 
-	pi.registerShortcut("ctrl+x", {
+	pi.registerShortcut("alt+t", {
 		description: "Cycle theme forward",
 		handler: async (ctx) => {
 			currentCtx = ctx;
