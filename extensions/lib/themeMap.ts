@@ -11,7 +11,7 @@
  *   monochrome-blue
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { basename } from "path";
 import { fileURLToPath } from "url";
 
@@ -21,39 +21,41 @@ import { fileURLToPath } from "url";
 // Value = theme name from .pi/themes/<value>.json
 //
 export const THEME_MAP: Record<string, string> = {
-	"agent-banner":       "catppuccin-macchiato",
-	"agent-chain":        "catppuccin-macchiato",
-	"agent-team":         "catppuccin-macchiato",
-	"cross-agent":        "catppuccin-macchiato",
-	"damage-control":     "catppuccin-macchiato",
-	"minimal":            "catppuccin-macchiato",
-	"pi-pi":              "catppuccin-macchiato",
-	"pure-focus":         "catppuccin-macchiato",
-	"purpose-gate":       "catppuccin-macchiato",
-	"session-replay":     "catppuccin-macchiato",
-	"subagent-widget":    "catppuccin-macchiato",
-	"system-select":      "catppuccin-macchiato",
-	"theme-cycler":       "catppuccin-macchiato",
-	"mic":                "catppuccin-macchiato",
-	"pipeline-team":      "catppuccin-macchiato",
-	"tasks":              "catppuccin-macchiato",
-	"plan-mode":          "catppuccin-macchiato",
-	"tool-counter":       "catppuccin-macchiato",
-	"tool-counter-widget":"catppuccin-macchiato",
-	"footer":             "catppuccin-macchiato",
-	"mode-cycler":        "catppuccin-macchiato",
-	"user-question":      "catppuccin-macchiato",
-	"plan-viewer":        "catppuccin-macchiato",
-	"completion-report":  "catppuccin-macchiato",
-	"sounds":             "catppuccin-macchiato",
+  "agent-banner": "catppuccin-macchiato",
+  "agent-chain": "catppuccin-macchiato",
+  "agent-team": "catppuccin-macchiato",
+  "cross-agent": "catppuccin-macchiato",
+  "damage-control": "catppuccin-macchiato",
+  minimal: "catppuccin-macchiato",
+  "pi-pi": "catppuccin-macchiato",
+  "pure-focus": "catppuccin-macchiato",
+  "purpose-gate": "catppuccin-macchiato",
+  "session-replay": "catppuccin-macchiato",
+  "subagent-widget": "catppuccin-macchiato",
+  "system-select": "catppuccin-macchiato",
+  "theme-cycler": "catppuccin-macchiato",
+  mic: "catppuccin-macchiato",
+  "pipeline-team": "catppuccin-macchiato",
+  tasks: "catppuccin-macchiato",
+  "plan-mode": "catppuccin-macchiato",
+  "tool-counter": "catppuccin-macchiato",
+  "tool-counter-widget": "catppuccin-macchiato",
+  footer: "catppuccin-macchiato",
+  "mode-cycler": "catppuccin-macchiato",
+  "user-question": "catppuccin-macchiato",
+  "plan-viewer": "catppuccin-macchiato",
+  "completion-report": "catppuccin-macchiato",
+  sounds: "catppuccin-macchiato",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /** Derive the extension name (e.g. "minimal") from its import.meta.url. */
 function extensionName(fileUrl: string): string {
-	const filePath = fileUrl.startsWith("file://") ? fileURLToPath(fileUrl) : fileUrl;
-	return basename(filePath).replace(/\.[^.]+$/, "");
+  const filePath = fileUrl.startsWith("file://")
+    ? fileURLToPath(fileUrl)
+    : fileUrl;
+  return basename(filePath).replace(/\.[^.]+$/, "");
 }
 
 // ── Theme ──────────────────────────────────────────────────────────────────
@@ -65,36 +67,39 @@ function extensionName(fileUrl: string): string {
  * @param ctx       The ExtensionContext from the session_start handler.
  * @returns         true if the theme was applied successfully, false otherwise.
  */
-export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boolean {
-	if (!ctx.hasUI) return false;
+export function applyExtensionTheme(
+  fileUrl: string,
+  ctx: ExtensionContext,
+): boolean {
+  if (!ctx.hasUI) return false;
 
-	const name = extensionName(fileUrl);
-	
-	// If there are multiple extensions stacked in 'ipi', they each fire session_start
-	// and try to apply their own mapped theme. The LAST one to fire wins.
-	// Since system-select is last in the ipi alias array, it was setting 'catppuccin-macchiato'.
-	
-	// We want to skip theme application for all secondary extensions if they are stacked,
-	// so the primary extension (first in the array) dictates the theme.
-	const primaryExt = primaryExtensionName();
-	if (primaryExt && primaryExt !== name) {
-		return true; // Pretend we succeeded, but don't overwrite the primary theme
-	}
+  const name = extensionName(fileUrl);
 
-	let themeName = THEME_MAP[name];
-	
-	if (!themeName) {
-		themeName = "catppuccin-macchiato";
-	}
+  // If there are multiple extensions stacked in 'ipi', they each fire session_start
+  // and try to apply their own mapped theme. The LAST one to fire wins.
+  // Since system-select is last in the ipi alias array, it was setting 'catppuccin-macchiato'.
 
-	const result = ctx.ui.setTheme(themeName);
+  // We want to skip theme application for all secondary extensions if they are stacked,
+  // so the primary extension (first in the array) dictates the theme.
+  const primaryExt = primaryExtensionName();
+  if (primaryExt && primaryExt !== name) {
+    return true; // Pretend we succeeded, but don't overwrite the primary theme
+  }
 
-	// if (!result.success && themeName !== "catppuccin-macchiato") {
+  let themeName = THEME_MAP[name];
+
+  if (!themeName) {
+    themeName = "catppuccin-macchiato";
+  }
+
+  const result = ctx.ui.setTheme(themeName);
+
+  // if (!result.success && themeName !== "catppuccin-macchiato") {
   if (!result.success) {
-		return ctx.ui.setTheme("catppuccin-macchiato").success;
-	}
-	
-	return result.success;
+    return ctx.ui.setTheme("catppuccin-macchiato").success;
+  }
+
+  return result.success;
 }
 // ── Title ──────────────────────────────────────────────────────────────────
 
@@ -111,13 +116,13 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
  * Returns null if no -e flag is present (e.g. plain `pi` with no extensions).
  */
 function primaryExtensionName(): string | null {
-	const argv = process.argv;
-	for (let i = 0; i < argv.length - 1; i++) {
-		if (argv[i] === "-e" || argv[i] === "--extension") {
-			return basename(argv[i + 1]).replace(/\.[^.]+$/, "");
-		}
-	}
-	return null;
+  const argv = process.argv;
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] === "-e" || argv[i] === "--extension") {
+      return basename(argv[i + 1]).replace(/\.[^.]+$/, "");
+    }
+  }
+  return null;
 }
 
 /**
@@ -128,10 +133,10 @@ function primaryExtensionName(): string | null {
  * Deferred 150 ms to fire after Pi's own startup title-set.
  */
 function applyExtensionTitle(ctx: ExtensionContext): void {
-	if (!ctx.hasUI) return;
-	const name = primaryExtensionName();
-	if (!name) return;
-	setTimeout(() => ctx.ui.setTitle(`π - ${name}`), 150);
+  if (!ctx.hasUI) return;
+  const name = primaryExtensionName();
+  if (!name) return;
+  setTimeout(() => ctx.ui.setTitle(`π - ${name}`), 150);
 }
 
 // ── Combined default ───────────────────────────────────────────────────────
@@ -148,7 +153,10 @@ function applyExtensionTitle(ctx: ExtensionContext): void {
  *     // ... rest of handler
  *   });
  */
-export function applyExtensionDefaults(fileUrl: string, ctx: ExtensionContext): void {
-	applyExtensionTheme(fileUrl, ctx);
-	applyExtensionTitle(ctx);
+export function applyExtensionDefaults(
+  fileUrl: string,
+  ctx: ExtensionContext,
+): void {
+  applyExtensionTheme(fileUrl, ctx);
+  applyExtensionTitle(ctx);
 }

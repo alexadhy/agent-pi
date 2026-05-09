@@ -7,12 +7,12 @@ set -euo pipefail
 
 # ── Install banner art (same as extensions/agent-banner.ts DEFAULT_ART) ──
 INSTALL_ART="$(cat <<'EOF'
-                             ▄▄   
+                             ▄▄
 █████▄ ▄████▄ ▄████▄ █████▄ ▄██▄▄▄
 ▄▄▄▄██ ██  ██ ██▄▄██ ██  ██ ▀██▀▀▀
 ██▄▄██ ██▄▄██ ██▄▄▄▄ ██  ██  ██▄▄▄
  ▀▀▀▀▀  ▀▀▀██  ▀▀▀▀▀ ▀▀  ▀▀   ▀▀▀▀
-        ████▀                     
+        ████▀
 
 EOF
 )"
@@ -148,14 +148,14 @@ if command -v pi &>/dev/null; then
     success "Pi CLI found at ${DIM}${PI_PATH}${NC}"
 else
     if [ "$DRY_RUN" -eq 1 ]; then
-        info "[dry-run] Pi CLI not found — would run: ${DIM}npm install -g @mariozechner/pi-coding-agent${NC}"
+        info "[dry-run] Pi CLI not found — would run: ${DIM}npm install -g @earendil-works/pi-coding-agent${NC}"
     else
         info "Pi CLI not found — installing globally..."
-        npm install -g @mariozechner/pi-coding-agent
+        npm install -g @earendil-works/pi-coding-agent
         if command -v pi &>/dev/null; then
             success "Pi CLI installed"
         else
-            fail "Failed to install Pi CLI. Try manually: npm install -g @mariozechner/pi-coding-agent"
+            fail "Failed to install Pi CLI. Try manually: npm install -g @earendil-works/pi-coding-agent"
             exit 1
         fi
     fi

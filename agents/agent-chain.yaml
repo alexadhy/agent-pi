@@ -166,13 +166,9 @@ document-audit:
   description: "Audit and improve documentation using the Diataxis framework"
   steps:
     - agent: scout
-      prompt: "Map all existing documentation in the project. List every doc file, its current content type, and location. Check docs/, README.md, CONTRIBUTING.md, any guides, API docs, and inline documentation.
-
-$INPUT"
+      prompt: "Map all existing documentation in the project. List every doc file, its current content type, and location. Check docs/, README.md, CONTRIBUTING.md, any guides, API docs, and inline documentation."
     - agent: documenter
-      prompt: "Audit the documentation against the Diataxis quadrants. Classify each document, identify gaps, and produce a coverage map.
-
-$INPUT"
+      prompt: "Audit the documentation against the Diataxis quadrants. Classify each document, identify gaps, and produce a coverage map."
 
 write-docs:
   description: "Write documentation for a feature using the Diataxis framework"
@@ -180,6 +176,4 @@ write-docs:
     - agent: scout
       prompt: "Explore the codebase for: $INPUT. Map relevant files, functions, and patterns. Identify entry points, APIs, configuration, and usage examples."
     - agent: documenter
-      prompt: "Based on this codebase analysis, write documentation using the Diataxis framework for:
-
-$INPUT"
+      prompt: "Based on this codebase analysis, write documentation using the Diataxis framework for: $INPUT"

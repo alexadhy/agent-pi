@@ -4,91 +4,91 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@mariozechner/pi-tui", () => ({
-	truncateToWidth: (s: string) => s,
+vi.mock("@earendil-works/pi-tui", () => ({
+  truncateToWidth: (s: string) => s,
 }));
 
 vi.mock("node:fs", () => ({
-	existsSync: vi.fn(() => false),
-	mkdirSync: vi.fn(),
-	readFileSync: vi.fn(() => ""),
-	writeFileSync: vi.fn(),
-	appendFileSync: vi.fn(),
+  existsSync: vi.fn(() => false),
+  mkdirSync: vi.fn(),
+  readFileSync: vi.fn(() => ""),
+  writeFileSync: vi.fn(),
+  appendFileSync: vi.fn(),
 }));
 
 function createExtension() {
-	const handlers: Record<string, (event: unknown, ctx: any) => any> = {};
-	const pi: any = {
-		on: (event: string, handler: any) => {
-			handlers[event] = handler;
-		},
-	};
-	return { handlers, pi };
+  const handlers: Record<string, (event: unknown, ctx: any) => any> = {};
+  const pi: any = {
+    on: (event: string, handler: any) => {
+      handlers[event] = handler;
+    },
+  };
+  return { handlers, pi };
 }
 
 describe("footer (post-refactor)", () => {
-	beforeEach(() => {
-		vi.resetModules();
-	});
+  beforeEach(() => {
+    vi.resetModules();
+  });
 
-	it("does not register a before_agent_start handler (moved to memory-cycle)", async () => {
-		const { handlers, pi } = createExtension();
-		const extension = await import("../footer.ts");
-		extension.default(pi);
+  it("does not register a before_agent_start handler (moved to memory-cycle)", async () => {
+    const { handlers, pi } = createExtension();
+    const extension = await import("../footer.ts");
+    extension.default(pi);
 
-		expect(handlers["before_agent_start"]).toBeUndefined();
-	});
+    expect(handlers["before_agent_start"]).toBeUndefined();
+  });
 
-	it("does not register a tool_call handler (no blocking)", async () => {
-		const { handlers, pi } = createExtension();
-		const extension = await import("../footer.ts");
-		extension.default(pi);
+  it("does not register a tool_call handler (no blocking)", async () => {
+    const { handlers, pi } = createExtension();
+    const extension = await import("../footer.ts");
+    extension.default(pi);
 
-		expect(handlers["tool_call"]).toBeUndefined();
-	});
+    expect(handlers["tool_call"]).toBeUndefined();
+  });
 
-	it("registers session_start and session_shutdown handlers", async () => {
-		const { handlers, pi } = createExtension();
-		const extension = await import("../footer.ts");
-		extension.default(pi);
+  it("registers session_start and session_shutdown handlers", async () => {
+    const { handlers, pi } = createExtension();
+    const extension = await import("../footer.ts");
+    extension.default(pi);
 
-		expect(handlers["session_start"]).toBeDefined();
-		expect(handlers["session_shutdown"]).toBeDefined();
-	});
+    expect(handlers["session_start"]).toBeDefined();
+    expect(handlers["session_shutdown"]).toBeDefined();
+  });
 });
 
 describe("formatTokens", () => {
-	let formatTokens: (n: number) => string;
+  let formatTokens: (n: number) => string;
 
-	beforeEach(async () => {
-		vi.resetModules();
-		const mod = await import("../footer.ts");
-		formatTokens = mod.formatTokens;
-	});
+  beforeEach(async () => {
+    vi.resetModules();
+    const mod = await import("../footer.ts");
+    formatTokens = mod.formatTokens;
+  });
 
-	it("formats numbers under 1000 as raw integers", () => {
-		expect(formatTokens(0)).toBe("0");
-		expect(formatTokens(500)).toBe("500");
-		expect(formatTokens(999)).toBe("999");
-	});
+  it("formats numbers under 1000 as raw integers", () => {
+    expect(formatTokens(0)).toBe("0");
+    expect(formatTokens(500)).toBe("500");
+    expect(formatTokens(999)).toBe("999");
+  });
 
-	it("formats thousands as K with decimal when needed", () => {
-		expect(formatTokens(1000)).toBe("1K");
-		expect(formatTokens(1500)).toBe("1.5K");
-		expect(formatTokens(10000)).toBe("10K");
-		expect(formatTokens(200000)).toBe("200K");
-		expect(formatTokens(999000)).toBe("999K");
-	});
+  it("formats thousands as K with decimal when needed", () => {
+    expect(formatTokens(1000)).toBe("1K");
+    expect(formatTokens(1500)).toBe("1.5K");
+    expect(formatTokens(10000)).toBe("10K");
+    expect(formatTokens(200000)).toBe("200K");
+    expect(formatTokens(999000)).toBe("999K");
+  });
 
-	it("formats millions as M with decimal when needed", () => {
-		expect(formatTokens(1000000)).toBe("1M");
-		expect(formatTokens(1200000)).toBe("1.2M");
-		expect(formatTokens(2500000)).toBe("2.5M");
-		expect(formatTokens(10000000)).toBe("10M");
-	});
+  it("formats millions as M with decimal when needed", () => {
+    expect(formatTokens(1000000)).toBe("1M");
+    expect(formatTokens(1200000)).toBe("1.2M");
+    expect(formatTokens(2500000)).toBe("2.5M");
+    expect(formatTokens(10000000)).toBe("10M");
+  });
 
-	it("rounds fractional values cleanly", () => {
-		expect(formatTokens(1550)).toBe("1.6K");
-		expect(formatTokens(1050000)).toBe("1.1M");
-	});
+  it("rounds fractional values cleanly", () => {
+    expect(formatTokens(1550)).toBe("1.6K");
+    expect(formatTokens(1050000)).toBe("1.1M");
+  });
 });

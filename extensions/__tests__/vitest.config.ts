@@ -10,28 +10,31 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const mocksDir = resolve(__dirname, "..", "mocks");
 
 export default defineConfig({
-	test: {
-		globals: true,
-		environment: "node",
-		include: ["**/*.test.ts", "**/*.spec.ts"],
-		exclude: ["node_modules", "dist", "build"],
-		coverage: {
-			provider: "v8",
-			reporter: ["text", "json", "html"],
-			include: ["../user-question.ts"],
-			exclude: ["**/*.test.ts", "**/*.spec.ts"],
-			lines: 80,
-			functions: 80,
-			branches: 75,
-			statements: 80,
-		},
-	},
-	resolve: {
-		alias: {
-			"@mariozechner/pi-tui": resolve(mocksDir, "pi-tui.ts"),
-			"@mariozechner/pi-coding-agent": resolve(mocksDir, "pi-coding-agent.ts"),
-			"@mariozechner/pi-ai": resolve(mocksDir, "pi-ai.ts"),
-			"@sinclair/typebox": resolve(mocksDir, "typebox.ts"),
-		},
-	},
+  test: {
+    globals: true,
+    environment: "node",
+    include: ["**/*.test.ts", "**/*.spec.ts"],
+    exclude: ["node_modules", "dist", "build"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      include: ["../user-question.ts"],
+      exclude: ["**/*.test.ts", "**/*.spec.ts"],
+      lines: 80,
+      functions: 80,
+      branches: 75,
+      statements: 80,
+    },
+  },
+  resolve: {
+    alias: {
+      "@earendil-works/pi-tui": resolve(mocksDir, "pi-tui.ts"),
+      "@earendil-works/pi-coding-agent": resolve(
+        mocksDir,
+        "pi-coding-agent.ts",
+      ),
+      "@earendil-works/pi-ai": resolve(mocksDir, "pi-ai.ts"),
+      "@sinclair/typebox": resolve(mocksDir, "typebox.ts"),
+    },
+  },
 });

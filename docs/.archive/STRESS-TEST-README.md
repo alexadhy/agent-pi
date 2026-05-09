@@ -28,7 +28,7 @@
 
 ## 🔭 Overview
 
-This is a power-user configuration for **Pi**, a terminal-based AI coding agent by [@mariozechner](https://github.com/badlogic). The setup transforms Pi from a single-agent assistant into a **multi-agent orchestration platform** with:
+This is a power-user configuration for **Pi**, a terminal-based AI coding agent by [@earendil-works](https://github.com/badlogic). The setup transforms Pi from a single-agent assistant into a **multi-agent orchestration platform** with:
 
 - **17 custom extensions** — from ASCII banners to full pipeline orchestrators
 - **11 custom themes** — dark, colorful terminal themes (Catppuccin, Dracula, Nord, Synthwave, etc.)
@@ -118,7 +118,7 @@ Extensions are TypeScript files loaded via the `packages` array in `settings.jso
 ### Extension Anatomy
 
 ```typescript
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
   // Listen to lifecycle events
