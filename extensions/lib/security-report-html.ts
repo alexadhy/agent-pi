@@ -80,19 +80,29 @@ export function generateSecurityReportHTML(report: SecurityReportData): string {
   <title>${escapeHtml(report.title)}</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #0f172a;
-      --panel: #111827;
-      --border: #334155;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --accent: #38bdf8;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    body.theme-dark {
+      --bg: #1e1e2e;
+      --panel: #181825;
+      --border: #45475a;
+      --text: #cdd6f4;
+      --muted: #bac2de;
+      --accent: #89b4fa;
+    }
+    body.theme-light {
+      --bg: #eff1f5;
+      --panel: #e6e9ef;
+      --border: #bcc0cc;
+      --text: #4c4f69;
+      --muted: #5c5f77;
+      --accent: #1e66f5;
     }
     body {
       margin: 0;
       padding: 24px;
-      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-      background: linear-gradient(180deg, #020617, var(--bg));
+      font-family: var(--font), Inter, ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
       color: var(--text);
     }
     .wrap {
@@ -169,9 +179,40 @@ export function generateSecurityReportHTML(report: SecurityReportData): string {
     .source-block {
       min-height: 120px;
     }
+
+    .theme-toggle {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 100;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .theme-toggle:hover {
+      color: var(--text);
+      border-color: var(--accent);
+    }
+    .theme-dark .sun-icon { display: block; }
+    .theme-dark .moon-icon { display: none; }
+    .theme-light .sun-icon { display: none; }
+    .theme-light .moon-icon { display: block; }
   </style>
 </head>
-<body>
+<body class="theme-dark">
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+    <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
   <main class="wrap">
     <section class="hero">
       <h1>${escapeHtml(report.title)}</h1>
@@ -191,6 +232,26 @@ export function generateSecurityReportHTML(report: SecurityReportData): string {
       ${section("Port Analysis", report.scan ? `<pre class="source-block">${escapeHtml(report.scan)}</pre>` : `<div class="empty">No port analysis summary provided.</div>`)}
     </div>
   </main>
+
+<script>
+(function() {
+  function getStoredTheme() {
+    try { return localStorage.getItem('security-report-theme'); } catch { return null; }
+  }
+
+  function applyTheme(theme) {
+    document.body.className = theme;
+    try { localStorage.setItem('security-report-theme', theme); } catch {}
+  }
+
+  window.toggleTheme = function() {
+    const current = document.body.classList.contains('theme-dark') ? 'theme-dark' : 'theme-light';
+    applyTheme(current === 'theme-dark' ? 'theme-light' : 'theme-dark');
+  };
+
+  applyTheme(getStoredTheme() || 'theme-dark');
+})();
+</script>
 </body>
 </html>`;
 }

@@ -30,22 +30,41 @@ export function generateFileViewerHTML(opts: {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css">
 <style>
   :root {
-    --bg: #1a1d23;
-    --surface: #1e2228;
-    --surface2: #252a32;
-    --border: #2e343e;
-    --text: #e2e8f0;
-    --text-muted: #8892a0;
-    --text-dim: #555d6e;
-    --accent: #2980b9;
-    --accent-hover: #3a9ad5;
-    --accent-dim: rgba(41, 128, 185, 0.12);
-    --success: #48d889;
-    --warning: #f0b429;
-    --error: #e85858;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
     --mono: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
     --line-num-width: 54px;
+  }
+
+  body.theme-dark {
+    --bg: #1e1e2e;
+    --surface: #181825;
+    --surface2: #313244;
+    --border: #45475a;
+    --text: #cdd6f4;
+    --text-muted: #bac2de;
+    --text-dim: #a6adc8;
+    --accent: #89b4fa;
+    --accent-hover: #74c7ec;
+    --accent-dim: rgba(137, 180, 250, 0.12);
+    --success: #a6e3a1;
+    --warning: #fab387;
+    --error: #f38ba8;
+  }
+
+  body.theme-light {
+    --bg: #eff1f5;
+    --surface: #e6e9ef;
+    --surface2: #ccd0da;
+    --border: #bcc0cc;
+    --text: #4c4f69;
+    --text-muted: #5c5f77;
+    --text-dim: #6c6f85;
+    --accent: #1e66f5;
+    --accent-hover: #209fb5;
+    --accent-dim: rgba(30, 102, 245, 0.12);
+    --success: #40a02b;
+    --warning: #fe640b;
+    --error: #d20f39;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -336,11 +355,41 @@ export function generateFileViewerHTML(opts: {
   }
   .done-banner.visible { display: flex; }
   .done-banner .done-text { flex: 1; }
+
+  /* ── Theme toggle ─────────────────────── */
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .theme-toggle:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+  .theme-dark .sun-icon { display: block; }
+  .theme-dark .moon-icon { display: none; }
+  .theme-light .sun-icon { display: none; }
+  .theme-light .moon-icon { display: block; }
 </style>
 </head>
-<body>
+<body class="theme-dark">
   <div class="header">
     <div class="badge">File</div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+      <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
     <span id="langBadge" class="lang-badge"></span>
     <div class="title-wrap">
       <div class="title"><span id="titleText"></span><span id="unsavedDot" class="unsaved-dot"></span></div>
@@ -416,6 +465,24 @@ export function generateFileViewerHTML(opts: {
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/makefile.min.js"><\/script>
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/xml.min.js"><\/script>
 <script>
+  // ── Theme ────────────────────────────────────
+  function getStoredTheme() {
+    try { return localStorage.getItem('file-viewer-theme'); } catch { return null; }
+  }
+
+  function applyTheme(theme) {
+    document.body.className = theme;
+    try { localStorage.setItem('file-viewer-theme', theme); } catch {}
+  }
+
+  window.toggleTheme = function() {
+    const current = document.body.classList.contains('theme-dark') ? 'theme-dark' : 'theme-light';
+    applyTheme(current === 'theme-dark' ? 'theme-light' : 'theme-dark');
+  };
+
+  // Apply stored theme or default to dark
+  applyTheme(getStoredTheme() || 'theme-dark');
+
   var PORT = ${opts.port};
   var TITLE = ${escapedTitle};
   var FILE_PATH = ${escapedFilePath};

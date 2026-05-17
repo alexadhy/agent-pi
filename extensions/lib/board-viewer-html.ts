@@ -22,37 +22,70 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
 <title>${title} — Task Board</title>
 <style>
   :root {
-    --bg: #1a1d23;
-    --surface: #1e2228;
-    --surface2: #252a32;
-    --surface3: #2a303a;
-    --border: #2e343e;
-    --border-light: #3a4250;
-    --text: #e2e8f0;
-    --text-muted: #8892a0;
-    --text-dim: #555d6e;
-    --accent: #2980b9;
-    --accent-hover: #3a9ad5;
-    --accent-dim: rgba(41, 128, 185, 0.12);
-    --success: #48d889;
-    --success-bg: rgba(72, 216, 137, 0.08);
-    --success-border: rgba(72, 216, 137, 0.25);
-    --warning: #f0b429;
-    --warning-bg: rgba(240, 180, 41, 0.08);
-    --warning-border: rgba(240, 180, 41, 0.25);
-    --error: #e85858;
-    --error-bg: rgba(232, 88, 88, 0.08);
-    --error-border: rgba(232, 88, 88, 0.25);
-    --pending-color: #8892a0;
-    --pending-bg: rgba(136, 146, 160, 0.08);
-    --pending-border: rgba(136, 146, 160, 0.25);
-    --working-color: #2980b9;
-    --working-bg: rgba(41, 128, 185, 0.08);
-    --working-border: rgba(41, 128, 185, 0.25);
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
     --mono: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
     --radius: 8px;
     --radius-sm: 6px;
+  }
+
+  body.theme-dark {
+    --bg: #1e1e2e;
+    --surface: #181825;
+    --surface2: #313244;
+    --surface3: #45475a;
+    --border: #45475a;
+    --border-light: #585b70;
+    --text: #cdd6f4;
+    --text-muted: #bac2de;
+    --text-dim: #a6adc8;
+    --accent: #89b4fa;
+    --accent-hover: #74c7ec;
+    --accent-dim: rgba(137, 180, 250, 0.12);
+    --success: #a6e3a1;
+    --success-bg: rgba(166, 227, 161, 0.08);
+    --success-border: rgba(166, 227, 161, 0.25);
+    --warning: #fab387;
+    --warning-bg: rgba(250, 179, 135, 0.08);
+    --warning-border: rgba(250, 179, 135, 0.25);
+    --error: #f38ba8;
+    --error-bg: rgba(243, 139, 168, 0.08);
+    --error-border: rgba(243, 139, 168, 0.25);
+    --pending-color: #a6adc8;
+    --pending-bg: rgba(166, 173, 200, 0.08);
+    --pending-border: rgba(166, 173, 200, 0.25);
+    --working-color: #89b4fa;
+    --working-bg: rgba(137, 180, 250, 0.08);
+    --working-border: rgba(137, 180, 250, 0.25);
+  }
+
+  body.theme-light {
+    --bg: #eff1f5;
+    --surface: #e6e9ef;
+    --surface2: #ccd0da;
+    --surface3: #bcc0cc;
+    --border: #bcc0cc;
+    --border-light: #acb0be;
+    --text: #4c4f69;
+    --text-muted: #5c5f77;
+    --text-dim: #6c6f85;
+    --accent: #1e66f5;
+    --accent-hover: #209fb5;
+    --accent-dim: rgba(30, 102, 245, 0.12);
+    --success: #40a02b;
+    --success-bg: rgba(64, 160, 43, 0.08);
+    --success-border: rgba(64, 160, 43, 0.25);
+    --warning: #fe640b;
+    --warning-bg: rgba(254, 100, 11, 0.08);
+    --warning-border: rgba(254, 100, 11, 0.25);
+    --error: #d20f39;
+    --error-bg: rgba(210, 15, 57, 0.08);
+    --error-border: rgba(210, 15, 57, 0.25);
+    --pending-color: #6c6f85;
+    --pending-bg: rgba(108, 111, 133, 0.08);
+    --pending-border: rgba(108, 111, 133, 0.25);
+    --working-color: #1e66f5;
+    --working-bg: rgba(30, 102, 245, 0.08);
+    --working-border: rgba(30, 102, 245, 0.25);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -752,13 +785,43 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
 
   .fade-in { animation: fadeIn 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
 
+  /* ── Theme toggle ─────────────────────── */
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .theme-toggle:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+  .theme-dark .sun-icon { display: block; }
+  .theme-dark .moon-icon { display: none; }
+  .theme-light .sun-icon { display: none; }
+  .theme-light .moon-icon { display: block; }
+
 </style>
 </head>
-<body>
+<body class="theme-dark">
 
 <!-- Header -->
 <div class="header">
   <img class="header-logo" src="/logo.png" alt="Pi" onerror="this.style.display='none'">
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+    <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
   <div class="header-title">${title}</div>
   <div class="header-status">
     <div class="status-dot" id="statusDot"></div>
@@ -870,6 +933,24 @@ export function generateBoardViewerHTML(opts: BoardViewerOptions): string {
 <script>
 (function() {
   'use strict';
+
+  // ── Theme ────────────────────────────────────
+  function getStoredTheme() {
+    try { return localStorage.getItem('board-viewer-theme'); } catch { return null; }
+  }
+
+  function applyTheme(theme) {
+    document.body.className = theme;
+    try { localStorage.setItem('board-viewer-theme', theme); } catch {}
+  }
+
+  window.toggleTheme = function() {
+    const current = document.body.classList.contains('theme-dark') ? 'theme-dark' : 'theme-light';
+    applyTheme(current === 'theme-dark' ? 'theme-light' : 'theme-dark');
+  };
+
+  // Apply stored theme or default to dark
+  applyTheme(getStoredTheme() || 'theme-dark');
 
   const API = 'http://127.0.0.1:${port}';
   const POLL_INTERVAL = 3; // seconds

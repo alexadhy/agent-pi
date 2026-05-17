@@ -29,6 +29,8 @@ export interface ReportData {
 /**
  * Generate the full HTML page for the completion report viewer window.
  */
+import { toLatteVars, toMochaVars, renderVarsBlock } from "./themes/index.js";
+
 export function generateCompletionReportHTML(opts: {
 	report: ReportData;
 	port: number;
@@ -41,6 +43,9 @@ export function generateCompletionReportHTML(opts: {
 	const escapedReport = JSON.stringify(report)
 		.replace(/<\//g, '<\\/');
 
+	const latteVars = renderVarsBlock(toLatteVars());
+	const mochaVars = renderVarsBlock(toMochaVars());
+
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -49,32 +54,22 @@ export function generateCompletionReportHTML(opts: {
 <title>${report.title} — Completion Report</title>
 <style>
   :root {
-    --bg: #1a1d23;
-    --surface: #1e2228;
-    --surface2: #252a32;
-    --border: #2e343e;
-    --text: #e2e8f0;
-    --text-muted: #8892a0;
-    --text-dim: #555d6e;
-    --accent: #2980b9;
-    --accent-hover: #3a9ad5;
-    --accent-dim: rgba(41, 128, 185, 0.12);
-    --success: #48d889;
-    --success-bg: rgba(72, 216, 137, 0.08);
-    --success-dim: rgba(72, 216, 137, 0.15);
-    --warning: #f0b429;
-    --warning-bg: rgba(240, 180, 41, 0.08);
-    --error: #e85858;
-    --error-bg: rgba(232, 88, 88, 0.08);
-    --error-dim: rgba(232, 88, 88, 0.15);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+    --mono: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
     --diff-add-bg: rgba(72, 216, 137, 0.08);
     --diff-add-text: #48d889;
     --diff-del-bg: rgba(232, 88, 88, 0.08);
     --diff-del-text: #e85858;
     --diff-hunk-bg: rgba(41, 128, 185, 0.08);
     --diff-hunk-text: #5fa8d3;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
-    --mono: "SF Mono", "Fira Code", "JetBrains Mono", Consolas, monospace;
+  }
+
+  body.theme-dark {
+${mochaVars}
+  }
+
+  body.theme-light {
+${latteVars}
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -732,6 +727,32 @@ export function generateCompletionReportHTML(opts: {
     justify-content: flex-end;
   }
 
+  /* ── Theme toggle ─────────────────────── */
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .theme-toggle:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+  .theme-dark .sun-icon { display: block; }
+  .theme-dark .moon-icon { display: none; }
+  .theme-light .sun-icon { display: none; }
+  .theme-light .moon-icon { display: block; }
+
   /* ── Responsive ──────────────────────── */
   @media (max-width: 600px) {
     .content { padding: 12px 12px 130px; }
@@ -742,11 +763,15 @@ export function generateCompletionReportHTML(opts: {
   }
 </style>
 </head>
-<body>
+<body class="theme-dark">
 
 <!-- Header -->
 <div class="header">
   <span class="badge" id="modeBadge">REPORT</span>
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+    <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
   <span class="title" id="titleText"></span>
   <div class="stats" id="headerStats"></div>
   <img src="/logo.png" alt="agent" class="header-logo">
@@ -818,6 +843,24 @@ export function generateCompletionReportHTML(opts: {
 
 <script>
 (function() {
+  // ── Theme ────────────────────────────────────
+  function getStoredTheme() {
+    try { return localStorage.getItem('completion-report-theme'); } catch { return null; }
+  }
+
+  function applyTheme(theme) {
+    document.body.className = theme;
+    try { localStorage.setItem('completion-report-theme', theme); } catch {}
+  }
+
+  window.toggleTheme = function() {
+    const current = document.body.classList.contains('theme-dark') ? 'theme-dark' : 'theme-light';
+    applyTheme(current === 'theme-dark' ? 'theme-light' : 'theme-dark');
+  };
+
+  // Apply stored theme or default to dark
+  applyTheme(getStoredTheme() || 'theme-dark');
+
   const PORT = ${port};
   const report = ${escapedReport};
   let rolledBackFiles = new Set();
