@@ -14,7 +14,7 @@
     },
     "builder": {
       "provider": "opencode-go",
-      "model": "kimi-k2.6"
+      "model": "deepseek-v4-flash"
     },
     "documenter": {
       "provider": "opencode-go",

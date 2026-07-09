@@ -26,16 +26,10 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { renderSubagentWidget, parseSubName } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
-import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
-import {
-  preClaimTask,
-  postCompleteTask,
-  postFailTask,
-} from "./lib/commander-lifecycle.ts";
-import {
-  parseGroupCreateResult,
-  buildGroupCreatePayload,
-} from "./lib/commander-sync.ts";
+// Commander integration stubs (Commander MCP was removed)
+function buildCommanderPrompt(_opts: any) { return ""; }
+function preClaimTask(_client: any, _taskId: any, _agent: any) { return Promise.resolve(); }
+
 import {
   scanAgentDefs,
   scanToolkitAgentDefs,
@@ -52,18 +46,7 @@ import {
   spawnToolkitWorker,
 } from "./lib/toolkit-cli.ts";
 
-// ── Commander availability ───────────────────────────────────────────────────
-
-function isCommanderAvailable(): boolean {
-  const g = globalThis as any;
-  return g.__piCommanderGate?.state === "available" && !!g.__piCommanderClient;
-}
-
-function getCommanderClient(): any | undefined {
-  const g = globalThis as any;
-  if (!isCommanderAvailable()) return undefined;
-  return g.__piCommanderClient;
-}
+// ── Commander availability (removed — Commander MCP was never available) ──
 
 // ── Graceful kill helper ─────────────────────────────────────────────────────
 
@@ -256,13 +239,8 @@ export default function (pi: ExtensionAPI) {
 
     const extDir = path.dirname(fileURLToPath(import.meta.url));
     const tasksExtPath = path.join(extDir, "tasks.ts");
-    const commanderExtPath = path.join(extDir, "commander-mcp.ts");
     const footerExtPath = path.join(extDir, "footer.ts");
     const memoryCycleExtPath = path.join(extDir, "memory-cycle.ts");
-
-    // Commander integration
-    const commanderAvail = isCommanderAvailable();
-    const cmdTaskId = state.commanderTaskId;
 
     // Tools: use agent definition tools if available, else default set
     let tools = agentDef?.tools || "read,bash,grep,find,ls";
@@ -274,45 +252,17 @@ export default function (pi: ExtensionAPI) {
       "-e",
       memoryCycleExtPath,
     ];
-    if (commanderAvail) {
-      // Commander tools are extension-registered (not built-in), so they must NOT
-      // go in --tools (which only accepts built-in names and warns on unknowns).
-      // Loading the extension is sufficient — pi auto-activates all extension tools.
-      extensions.push("-e", commanderExtPath);
-    }
 
-    // Build system prompt: agent definition prompt + Commander discipline
+    // Build system prompt: agent definition prompt
     const systemPromptArgs: string[] = [];
     if (agentDef?.systemPrompt) {
       systemPromptArgs.push("--append-system-prompt", agentDef.systemPrompt);
-    }
-    if (commanderAvail) {
-      const cmdPrompt = buildCommanderPrompt({
-        agentName: `SA-${state.id}-${state.name}`,
-        taskId: cmdTaskId,
-        enableMailboxChat: true,
-        peerNames,
-      });
-      systemPromptArgs.push("--append-system-prompt", cmdPrompt);
-    }
-
-    // Pre-claim: parent claims Commander task on behalf of subagent
-    if (commanderAvail && cmdTaskId !== undefined) {
-      const client = getCommanderClient();
-      if (client) {
-        preClaimTask(client, cmdTaskId, `SA-${state.id}-${state.name}`).catch(
-          () => {},
-        );
-      }
     }
 
     const spawnEnv: Record<string, string | undefined> = {
       ...process.env,
       PI_SUBAGENT: "1",
     };
-    if (commanderAvail && cmdTaskId !== undefined) {
-      spawnEnv.PI_COMMANDER_TASK_ID = String(cmdTaskId);
-    }
 
     return new Promise<void>((resolve) => {
       const startTime = Date.now();
@@ -364,23 +314,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
-        // Post-dispatch: reconcile Commander task to terminal state
-        if (commanderAvail && cmdTaskId !== undefined) {
-          const client = getCommanderClient();
-          if (client) {
-            const agentLabel = `SA-${state.id}-${state.name}`;
-            const summary =
-              state.textChunks.join("").trim().split("\n").pop() || agentLabel;
-            if (state.status === "done") {
-              postCompleteTask(client, cmdTaskId, agentLabel, summary).catch(
-                () => {},
-              );
-            } else {
-              const errMsg = summary || "Agent exited with error";
-              postFailTask(client, cmdTaskId, errMsg).catch(() => {});
-            }
-          }
-        }
+        // Post-dispatch: Commander reconciliation removed (Commander MCP was never available)
 
         const result = state.textChunks.join("");
 
@@ -702,29 +636,7 @@ export default function (pi: ExtensionAPI) {
         };
       });
 
-      // Try to create Commander task group for all agents at once
-      const client = getCommanderClient();
-      if (client && isCommanderAvailable()) {
-        const groupName = args.groupName || `subagent-batch-${Date.now()}`;
-        const taskTexts = defs.map((def: any) => def.task);
-        const payload = buildGroupCreatePayload(
-          groupName,
-          `Batch subagent group: ${groupName}`,
-          taskTexts,
-          process.cwd(),
-        );
-        try {
-          const result = await client.callTool("commander_task", payload);
-          const parsed = parseGroupCreateResult(result);
-          if (parsed && parsed.taskIds.length >= states.length) {
-            for (let i = 0; i < states.length; i++) {
-              states[i].commanderTaskId = parsed.taskIds[i];
-            }
-          }
-        } catch {
-          // Commander group creation failed — proceed without task IDs
-        }
-      }
+      // Commander task group creation removed — Commander MCP was never available on this machine
 
       // Collect peer names for mailbox banter
       const peerNames = states.map((s) => `SA-${s.id}-${s.name}`);

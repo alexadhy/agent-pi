@@ -61,24 +61,6 @@ const TOOL_MAP: Record<string, string> = {
   python: "bash",
   terminal: "bash",
   "claude-code-sdk": "read,grep,bash",
-  // Commander MCP tools (Claude Code → Pi name mapping)
-  mcp__commander__commander_task: "commander_task",
-  mcp__commander__commander_session: "commander_session",
-  mcp__commander__commander_workflow: "commander_workflow",
-  mcp__commander__commander_spec: "commander_spec",
-  mcp__commander__commander_jira: "commander_jira",
-  mcp__commander__commander_mailbox: "commander_mailbox",
-  mcp__commander__commander_orchestration: "commander_orchestration",
-  mcp__commander__commander_dependency: "commander_dependency",
-  mcp__commander__commander_agentmail: "commander_agentmail",
-  // Legacy tool names used in session-cleanup.md
-  mcp__commander__commander_session_cleanup: "commander_session",
-  mcp__commander__commander_terminal_sessions: "commander_session",
-  // Legacy pre-unification commander tool names (all map to unified commander_task)
-  mcp__commander__commander_task_lifecycle: "commander_task",
-  mcp__commander__commander_task_group: "commander_task",
-  mcp__commander__commander_comment: "commander_task",
-  mcp__commander__commander_log: "commander_task",
   // Claude Code tool equivalents
   SlashCommand: "skill",
 };

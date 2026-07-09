@@ -71,12 +71,6 @@ import {
   contextBudgetLevel,
   isContextLossError,
 } from "./lib/context-budget.ts";
-import { buildCommanderPrompt } from "./lib/commander-prompt.ts";
-import {
-  preClaimTask,
-  postCompleteTask,
-  postFailTask,
-} from "./lib/commander-lifecycle.ts";
 import {
   renderTaskList,
   navDown,
@@ -567,51 +561,16 @@ export default function (pi: ExtensionAPI) {
     // Build args — first run creates session, subsequent runs resume
     const extDir = dirname(fileURLToPath(import.meta.url));
     const tasksExtPath = join(extDir, "tasks.ts");
-    const commanderExtPath = join(extDir, "commander-mcp.ts");
     const footerExtPath = join(extDir, "footer.ts");
     const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
 
-    // Resolve tools — append commander tools when Commander is available
     const g = globalThis as any;
-    const commanderAvailable =
-      g.__piCommanderGate?.state === "available" && !!g.__piCommanderClient;
-
-    // Commander lifecycle: gate-aware fire-and-forget helper
-    function commanderSync(fn: (client: any) => Promise<void>): void {
-      const gate = g.__piCommanderGate;
-      if (!gate || gate.state !== "available" || !g.__piCommanderClient) return;
-      fn(g.__piCommanderClient).catch(() => {});
-    }
-
-    // Hoist for use in pre-dispatch claim + post-dispatch reconciliation
     const canonicalName = state.def.name;
-    const taskId = commanderAvailable
-      ? (g.__piCurrentTask?.commanderTaskId as number | undefined)
-      : undefined;
 
     let tools = state.def.tools;
-    // Commander tools are extension-registered (not built-in), so they must NOT
-    // go in --tools (which only accepts built-in names and warns on unknowns).
-    // Loading the commander-mcp extension via -e is sufficient — pi auto-activates
-    // all extension tools via includeAllExtensionTools.
 
-    // Build system prompt — append Commander discipline when available
+    // Build system prompt
     let systemPrompt = state.def.systemPrompt;
-    if (commanderAvailable) {
-      // Gather peer names for inter-agent mailbox communication
-      const peerNames: string[] = [];
-      for (const [name] of agentStates) {
-        if (name !== canonicalName.toLowerCase()) {
-          peerNames.push(name);
-        }
-      }
-      systemPrompt += buildCommanderPrompt({
-        agentName: canonicalName,
-        taskId,
-        enableMailboxChat: true,
-        peerNames,
-      });
-    }
 
     const args = [
       "--mode",
@@ -624,7 +583,6 @@ export default function (pi: ExtensionAPI) {
       footerExtPath,
       "-e",
       memoryCycleExtPath,
-      ...(commanderAvailable ? ["-e", commanderExtPath] : []),
       "--model",
       model,
       "--tools",
@@ -647,24 +605,11 @@ export default function (pi: ExtensionAPI) {
     const textChunks: string[] = [];
 
     return new Promise((resolve) => {
-      // Build env — include Commander task ID when available
+      // Build env
       const spawnEnv: Record<string, string | undefined> = {
         ...process.env,
         PI_SUBAGENT: "1",
       };
-      if (commanderAvailable) {
-        const currentTask = g.__piCurrentTask as {
-          commanderTaskId?: number;
-        } | null;
-        if (currentTask?.commanderTaskId !== undefined) {
-          spawnEnv.PI_COMMANDER_TASK_ID = String(currentTask.commanderTaskId);
-        }
-      }
-
-      // Pre-dispatch: claim task in Commander before spawning
-      if (commanderAvailable && taskId !== undefined) {
-        commanderSync((client) => preClaimTask(client, taskId, canonicalName));
-      }
 
       const finish = (code: number | null, stderrBuf: string) => {
         state.proc = null;
@@ -705,19 +650,7 @@ export default function (pi: ExtensionAPI) {
           if (state.status !== "running") removeAgentWidget(state);
         }, 30_000);
 
-        if (commanderAvailable && taskId !== undefined) {
-          const summary =
-            textChunks.join("").trim().split("\n").pop() || canonicalName;
-          if (state.status === "done") {
-            commanderSync((client) =>
-              postCompleteTask(client, taskId, canonicalName, summary),
-            );
-          } else {
-            const errMsg =
-              stderrBuf.trim() || summary || "Agent exited with error";
-            commanderSync((client) => postFailTask(client, taskId, errMsg));
-          }
-        }
+        // Commander sync removed — Commander MCP was never available on this machine
 
         ctx.ui.notify(
           `${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
@@ -1408,23 +1341,18 @@ export default function (pi: ExtensionAPI) {
       .map((s) => displayName(s.def.name))
       .join(", ");
 
-    const commanderAvailable =
-      (globalThis as any).__piCommanderGate?.state === "available";
-    const commanderSection = commanderAvailable
-      ? `
+    const commanderSection = `
 
-## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_session { operation: "file:open", file_path: <path> }\` — display key files in Commander's floating viewer
-- \`commander_task\` — track tasks in the Commander dashboard
-- \`commander_mailbox\` — send status updates to the dashboard
+## Orchestrator Integration
+Use the orchestrator tools for dashboard visibility:
+- \`show_file { file_path: <path> }\` — display key files in the browser viewer
+- \`orch_task_add/list/update\` — track tasks in the orchestrator dashboard
+- \`mailbox_send\` — send status updates to other agents
 
 ### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "coordinator" }\`
+- Check your inbox periodically: \`mailbox_inbox { agent_name: "coordinator" }\`
 - Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere
-- Use file:open to show dispatched agent results or task lists`
-      : "";
+- Warm, professional, collaborative tone — no emojis anywhere`
 
     // Check if scout is on the team for delegation instructions
     const hasScout = agentStates.has("scout");

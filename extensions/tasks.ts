@@ -37,27 +37,21 @@ import {
 import { outputLine } from "./lib/output-box.ts";
 import { Type } from "@sinclair/typebox";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
-import {
-  localToCommander,
-  parseCommanderTaskId,
-  lookupMapping,
-  addMapping,
-  removeMapping,
-  clearMappings,
-  emptySyncState,
-  shouldCreateGroup,
-  isExternalSyncActive,
-  markGroupCreationInFlight,
-  parseGroupCreateResult,
-  buildGroupCreatePayload,
-  applyGroupCreateResult,
-  updateMappingStatus,
-  type SyncState,
-} from "./lib/commander-sync.ts";
 import { shouldConfirmNewList } from "./lib/tasks-confirm.ts";
 import { stripLeadingNumber } from "./lib/task-list-render.ts";
-import { enqueueOrExecute } from "./lib/commander-ready.ts";
-import { addRetry, isFullySynced } from "./lib/commander-tracker.ts";
+
+// Stub kept for backward compat — Commander MCP was removed
+// All syncState functions are no-ops since the Commander server never existed
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type SyncState = { mappings: any[]; nextLocalId: number };
+function emptySyncState(): SyncState { return { mappings: [], nextLocalId: 1 }; }
+function lookupMapping(_sync: SyncState, _id: number): undefined { return undefined; }
+function addMapping(_sync: SyncState, _localId: number, _commanderId: number): void {}
+function removeMapping(_sync: SyncState, _localId: number): void {}
+function clearMappings(_sync: SyncState): void {}
+function isExternalSyncActive(): boolean { return false; }
+function parseCommanderTaskId(_id: any): undefined { return undefined; }
+function isFullySynced(_state: any): boolean { return true; }
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -129,7 +123,6 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 export interface CurrentTaskInfo {
   id: number;
   text: string;
-  commanderTaskId?: number;
 }
 export interface TaskListInfo {
   tasks: { id: number; text: string; status: TaskStatus }[];
@@ -145,7 +138,6 @@ function publishCurrentTask(tasks: Task[], sync: SyncState) {
     ? ({
         id: cur.id,
         text: cur.text,
-        commanderTaskId: lookupMapping(sync, cur.id),
       } as CurrentTaskInfo)
     : null;
 
@@ -154,7 +146,6 @@ function publishCurrentTask(tasks: Task[], sync: SyncState) {
     tasks: tasks.map((t) => ({ id: t.id, text: t.text, status: t.status })),
     remaining,
     total: tasks.length,
-    __syncState: sync,
   } as TaskListInfo;
 }
 
@@ -285,27 +276,7 @@ export default function (pi: ExtensionAPI) {
   let nudgedThisCycle = false;
   let syncState: SyncState = emptySyncState();
 
-  // ── Commander sync (gate-aware) ─────────────────────────────────────
-
-  function syncToCommander(
-    label: string,
-    fn: (client: any) => Promise<void>,
-  ): void {
-    const g = globalThis as any;
-    const gate = g.__piCommanderGate;
-    if (!gate) return; // commander-mcp not loaded
-    const wrappedFn = async (client: any) => {
-      try {
-        await fn(client);
-      } catch {
-        const tracker = g.__piCommanderTracker;
-        if (tracker?._state) {
-          tracker._state = addRetry(tracker._state, label, fn);
-        }
-      }
-    };
-    enqueueOrExecute(gate, { fn: wrappedFn, label }, g.__piCommanderClient);
-  }
+  // ── Commander sync (removed — Commander MCP was never available) ──
 
   // ── Snapshot for details ───────────────────────────────────────────
 
@@ -326,10 +297,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   const refreshUI = (ctx: ExtensionContext) => {
-    const syncIndicator =
-      (globalThis as any).__piCommanderGate?.state === "available"
-        ? "(synced)"
-        : "(local)";
+    const syncIndicator = "(local)";
     if (tasks.length === 0) {
       ctx.ui.setStatus(`Tasks: none ${syncIndicator}`, "tasks");
     } else {
@@ -389,7 +357,7 @@ export default function (pi: ExtensionAPI) {
     // Sub-agents manage their own task discipline — don't gate them
     if (process.env.PI_SUBAGENT === "1") return { block: false };
     if (event.toolName === "tasks") return { block: false };
-    // Communication, orchestration, dispatcher, and Commander MCP tools bypass the gate
+    // Communication, orchestration, and dispatcher tools bypass the gate
     if (
       [
         "dispatch_agent",
@@ -401,6 +369,7 @@ export default function (pi: ExtensionAPI) {
       ].includes(event.toolName)
     )
       return { block: false };
+    // Also bypass unknown commander_ tools (removed MCP) to avoid agent errors
     if (event.toolName.startsWith("commander_")) return { block: false };
 
     // Allow read-only exploration without task ceremony
@@ -514,19 +483,6 @@ export default function (pi: ExtensionAPI) {
             }
           }
 
-          // Cancel any previously synced tasks before resetting
-          if (syncState.mappings.length > 0) {
-            syncToCommander("cancel-old-list", async (client) => {
-              for (const m of syncState.mappings) {
-                await client.callTool("commander_task", {
-                  operation: "update",
-                  task_id: m.commanderId,
-                  status: "cancelled",
-                });
-              }
-            });
-          }
-
           tasks = [];
           nextId = 1;
           listTitle = params.text;
@@ -595,55 +551,8 @@ export default function (pi: ExtensionAPI) {
             added.push(t);
           }
 
-          // Sync: create Commander tasks (skip if external sync owns it)
-          if (!isExternalSyncActive()) {
-            if (shouldCreateGroup(syncState)) {
-              // Path A: no group yet — batch all tasks into a single group:create
-              syncState = markGroupCreationInFlight(syncState);
-              const localIds = added.map((t) => t.id);
-              const payload = buildGroupCreatePayload(
-                listTitle || "Tasks",
-                listDescription || listTitle || "Tasks",
-                added.map((t) => t.text),
-                process.cwd(),
-              );
-              syncToCommander("group-create", async (client) => {
-                const res = await client.callTool("commander_task", payload);
-                const parsed = parseGroupCreateResult(res);
-                if (parsed) {
-                  syncState = applyGroupCreateResult(
-                    syncState,
-                    localIds,
-                    parsed,
-                  );
-                  for (const lid of localIds) {
-                    syncState = updateMappingStatus(syncState, lid, "idle");
-                  }
-                } else {
-                  syncState = { ...syncState, groupCreationInFlight: false };
-                }
-              });
-            } else if (syncState.groupId !== undefined) {
-              // Path B: group exists — add individual tasks with group_id
-              for (const t of added) {
-                syncToCommander("task-create", async (client) => {
-                  const res = await client.callTool("commander_task", {
-                    operation: "create",
-                    description: t.text,
-                    working_directory: process.cwd(),
-                    group_id: syncState.groupId,
-                  });
-                  const cid = parseCommanderTaskId(res);
-                  if (cid !== undefined) {
-                    syncState = addMapping(syncState, t.id, cid);
-                    syncState = updateMappingStatus(syncState, t.id, "idle");
-                  }
-                });
-              }
-            }
-            // If groupCreationInFlight but no groupId yet, tasks are dropped
-            // (race window — the group:create hasn't returned yet)
-          }
+          // Commander sync removed — Commander MCP was never available on this machine
+          // Use orch_task_add from agent-orchestrator.ts for group-aware tasks
 
           const msg =
             added.length === 1
@@ -697,95 +606,7 @@ export default function (pi: ExtensionAPI) {
             msg += `\n(Auto-paused ${demoted.map((t) => `#${t.id}`).join(", ")} → idle. Only one task can be in progress at a time.)`;
           }
 
-          // Sync: update Commander task status (skip if external sync owns it)
-          if (!isExternalSyncActive()) {
-            const gate = g.__piCommanderGate;
-            const client = g.__piCommanderClient;
-
-            if (gate?.state === "available" && client) {
-              // Commander available: await sync for per-task verification
-              const cid = lookupMapping(syncState, task.id);
-              if (cid !== undefined) {
-                try {
-                  await client.callTool("commander_task", {
-                    operation: "update",
-                    task_id: cid,
-                    status: localToCommander(task.status),
-                  });
-                  syncState = updateMappingStatus(
-                    syncState,
-                    task.id,
-                    task.status,
-                  );
-                  msg += ` (Commander #${cid} → ${localToCommander(task.status)})`;
-                } catch {
-                  // Direct sync failed — queue for retry
-                  syncToCommander("task-toggle-retry", async (c) => {
-                    await c.callTool("commander_task", {
-                      operation: "update",
-                      task_id: cid,
-                      status: localToCommander(task.status),
-                    });
-                    syncState = updateMappingStatus(
-                      syncState,
-                      task.id,
-                      task.status,
-                    );
-                  });
-                  msg += ` (Commander sync failed — queued for retry)`;
-                }
-              } else {
-                msg += ` (Commander: no mapping for task #${task.id})`;
-              }
-
-              // On completion: verify all tasks are synced
-              if (task.status === "done") {
-                const synced = isFullySynced(
-                  tasks.map((t) => ({
-                    id: t.id,
-                    text: t.text,
-                    status: t.status,
-                  })),
-                  syncState.mappings,
-                );
-                if (!synced) {
-                  const tracker = g.__piCommanderTracker;
-                  if (tracker?.reconcileNow) tracker.reconcileNow();
-                  msg += "\n(Triggering Commander sync for remaining tasks)";
-                }
-              }
-            } else {
-              // Commander unavailable: fire-and-forget (existing behavior)
-              syncToCommander("task-toggle", async (client) => {
-                const cid = lookupMapping(syncState, task.id);
-                if (cid === undefined) return;
-                await client.callTool("commander_task", {
-                  operation: "update",
-                  task_id: cid,
-                  status: localToCommander(task.status),
-                });
-                syncState = updateMappingStatus(
-                  syncState,
-                  task.id,
-                  task.status,
-                );
-              });
-            }
-
-            // Demoted tasks: fire-and-forget (automatic side effect)
-            for (const d of demoted) {
-              syncToCommander("task-demote", async (client) => {
-                const cid = lookupMapping(syncState, d.id);
-                if (cid === undefined) return;
-                await client.callTool("commander_task", {
-                  operation: "update",
-                  task_id: cid,
-                  status: "pending",
-                });
-                syncState = updateMappingStatus(syncState, d.id, "idle");
-              });
-            }
-          }
+          // Commander sync removed — Commander MCP was never available on this machine
 
           const result = {
             content: [
@@ -823,19 +644,7 @@ export default function (pi: ExtensionAPI) {
           }
           const removed = tasks.splice(idx, 1)[0];
 
-          // Sync: cancel Commander task (skip if external sync owns it)
-          if (!isExternalSyncActive()) {
-            syncToCommander("task-remove", async (client) => {
-              const cid = lookupMapping(syncState, removed.id);
-              if (cid === undefined) return;
-              await client.callTool("commander_task", {
-                operation: "update",
-                task_id: cid,
-                status: "cancelled",
-              });
-            });
-          }
-          syncState = removeMapping(syncState, removed.id);
+          // Commander sync removed — Commander MCP was never available on this machine
 
           const result = {
             content: [
@@ -916,24 +725,13 @@ export default function (pi: ExtensionAPI) {
 
           const count = tasks.length;
 
-          // Sync: cancel all mapped Commander tasks (skip if external sync owns it)
-          if (!isExternalSyncActive() && syncState.mappings.length > 0) {
-            syncToCommander("cancel-all", async (client) => {
-              for (const m of syncState.mappings) {
-                await client.callTool("commander_task", {
-                  operation: "update",
-                  task_id: m.commanderId,
-                  status: "cancelled",
-                });
-              }
-            });
-          }
-
           tasks = [];
           nextId = 1;
           listTitle = undefined;
           listDescription = undefined;
-          syncState = clearMappings(syncState);
+          syncState = emptySyncState();
+
+          // Commander sync removed — Commander MCP was never available
 
           const result = {
             content: [
