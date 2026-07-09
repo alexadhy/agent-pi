@@ -26,9 +26,6 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { renderSubagentWidget, parseSubName } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
-// Commander integration stubs (Commander MCP was removed)
-function buildCommanderPrompt(_opts: any) { return ""; }
-function preClaimTask(_client: any, _taskId: any, _agent: any) { return Promise.resolve(); }
 
 import {
   scanAgentDefs,
