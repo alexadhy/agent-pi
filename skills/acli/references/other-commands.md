@@ -7,6 +7,7 @@
 - [Jira Filter Commands](#jira-filter-commands)
 - [Jira Dashboard Commands](#jira-dashboard-commands)
 - [Jira Field Commands](#jira-field-commands)
+- [Confluence Commands](#confluence-commands)
 - [Admin Auth Commands](#admin-auth-commands)
 - [Admin User Commands](#admin-user-commands)
 - [Rovodev Commands](#rovodev-commands)
@@ -390,6 +391,121 @@ acli jira field cancel-delete [flags]
 | Flag | Type | Description |
 |------|------|-------------|
 | `--id` | string | Custom field ID |
+
+---
+
+## Confluence Commands
+
+Read, view, and manage Confluence spaces and pages.
+
+> **Note:** `acli` Confluence commands focus on page/space management. For full-text search across Confluence, use the Jira/Confluence REST API directly via `curl` or open the Confluence search in a browser.
+
+### confluence page view
+
+View a Confluence page by ID with optional body formats.
+
+```
+acli confluence page view [flags]
+```
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--id` | string | Page ID (required) |
+| `--body-format` | string | Body format: `storage`, `atlas_doc_format`, or `view` |
+| `--include-labels` | | Include page labels |
+| `--include-likes` | | Include likes/reactions |
+| `--include-versions` | | Include version history |
+| `--include-collaborators` | | Include collaborator info |
+| `--include-direct-children` | | Include child pages |
+| `--include-webresources` | | Include web resources metadata |
+| `--version` | int | Specific version number to retrieve |
+| `--status` | string | Filter: `current`, `draft`, `archived` (comma-separated) |
+| `--get-draft` | | Return draft version if accessible |
+| `--json` | | JSON output |
+
+Examples:
+```bash
+acli confluence page view --id 123456
+acli confluence page view --id 123456 --json
+acli confluence page view --id 123456 --body-format storage
+acli confluence page view --id 123456 --include-labels --include-versions
+```
+
+### confluence space list
+
+List all Confluence spaces.
+
+```
+acli confluence space list [flags]
+```
+
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--limit` | `-l` | int | Max results (default: 25) |
+| `--paginate` | | | Fetch all pages |
+| `--json` | | | JSON output |
+
+Examples:
+```bash
+acli confluence space list
+acli confluence space list --paginate --json
+acli confluence space list --limit 50
+```
+
+### confluence space view
+
+View details of a specific Confluence space.
+
+```
+acli confluence space view [flags]
+```
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--key` | string | Space key (required) |
+| `--json` | | JSON output |
+
+Examples:
+```bash
+acli confluence space view --key "BE"
+acli confluence space view --key "TEAM" --json
+```
+
+### confluence space create
+
+Create a new Confluence space.
+
+```
+acli confluence space create [flags]
+```
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--key` | string | Space key (required) |
+| `--name` | string | Space name (required) |
+| `--description` | string | Space description |
+| `--json` | | JSON output |
+
+Examples:
+```bash
+acli confluence space create --key "NEWSPACE" --name "New Space"
+acli confluence space create --key "DOCS" --name "Documentation" --description "Team docs"
+```
+
+### confluence blog
+
+Manage Confluence blog posts.
+
+```
+acli confluence blog [command] [flags]
+```
+
+Available subcommands: (run `acli confluence blog --help` for latest list)
+
+Examples:
+```bash
+acli confluence blog --help
+```
 
 ---
 

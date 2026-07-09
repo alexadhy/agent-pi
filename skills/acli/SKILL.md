@@ -1,8 +1,7 @@
 ---
 name: acli
-description: "Reference guide for the Atlassian CLI (acli) - a command-line tool for interacting with Jira Cloud and Atlassian organization administration. Use this skill when the user wants to perform Jira operations (create/edit/search/transition work items, manage projects, boards, sprints, filters, dashboards), administer Atlassian organizations (manage users, authentication), or automate Atlassian workflows from the terminal. Covers all acli commands including: jira workitem (create, edit, search, assign, transition, comment, clone, link, archive), jira project (create, list, update, archive), jira board/sprint, jira filter/dashboard, admin user management, and rovodev (Rovo Dev AI agent). Requires an authenticated acli binary already installed on the system."
-required_tools:
-  - acli
+description: "Reference guide for the Atlassian CLI (acli) - a command-line tool for interacting with Jira Cloud, Confluence, and Atlassian organization administration. Use this skill when the user wants to perform Jira operations (create/edit/search/transition work items, manage projects, boards, sprints, filters, dashboards), search or manage Confluence pages (search spaces, read/create/update pages), administer Atlassian organizations (manage users, authentication), or automate Atlassian workflows from the terminal. Covers all acli commands including: jira workitem (create, edit, search, assign, transition, comment, clone, link, archive), jira project (create, list, update, archive), jira board/sprint, jira filter/dashboard, confluence (search, page view/create/update, space list), admin user management, and rovodev (Rovo Dev AI agent). Requires an authenticated acli binary already installed on the system."
+allowed-tools: Bash(acli:*)
 env_vars:
   - name: API_TOKEN
     description: "Atlassian API token for non-interactive Jira authentication (optional — only needed for CI/automation, not for interactive OAuth login)"
@@ -220,9 +219,165 @@ acli jira board list-sprints --id 123 --state active
 acli jira sprint list-workitems --sprint 1 --board 6
 ```
 
+## Guided Workflows
+
+These are the most common tasks. Follow the step-by-step instructions — they handle auth, output format, and cleanup automatically.
+
+### Workflow: Get a Jira Ticket (Full Details)
+
+```bash
+# Get everything: description, comments, assignee, status, labels, all custom fields
+acli jira workitem view KEY-123 --json --fields "*all"
+```
+
+### Workflow: Find My Open Tickets
+
+```bash
+# All your open work items across projects
+acli jira workitem search --jql "assignee = currentUser() AND status != Done AND status != Closed" --json
+
+# Open items in a specific project
+acli jira workitem search --jql "project = OMR AND assignee = currentUser() AND status != Done" --json
+
+# Items in current sprint
+acli jira workitem search --jql "sprint in openSprints() AND assignee = currentUser()" --json
+```
+
+### Workflow: Create a Ticket with Rich Markdown (ADF)
+
+Jira Cloud uses ADF JSON for formatted descriptions. **Always use ADF when you need** headings, code blocks, lists, tables, status lozenges, or any text formatting.
+
+```bash
+# 1. Write ADF JSON to a temp file
+cat > /tmp/jira-desc.json << 'ENDJSON'
+{
+  "version": 1,
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [{ "type": "text", "text": "Problem" }]
+    },
+    {
+      "type": "paragraph",
+      "content": [{ "type": "text", "text": "Describe what's broken and the impact." }]
+    },
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [{ "type": "text", "text": "Steps to Reproduce" }]
+    },
+    {
+      "type": "orderedList",
+      "content": [
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Step one" }] }] },
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Step two" }] }] }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": { "level": 3 },
+      "content": [{ "type": "text", "text": "Acceptance Criteria" }]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Criterion 1" }] }] },
+        { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Criterion 2" }] }] }
+      ]
+    }
+  ]
+}
+ENDJSON
+
+# 2. Create the ticket
+acli jira workitem create \
+  --summary "Bug: descriptive title here" \
+  --project "PROJECT_KEY" \
+  --type "Bug" \
+  --description-file /tmp/jira-desc.json
+
+# 3. Clean up
+rm -f /tmp/jira-desc.json
+```
+
+### Workflow: Add a Rich Comment with Code Blocks
+
+```bash
+cat > /tmp/jira-comment.json << 'ENDJSON'
+{
+  "version": 1,
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "text": "Fix deployed", "marks": [{ "type": "strong" }] },
+        { "type": "text", "text": " — PR #123 merged to main." }
+      ]
+    },
+    {
+      "type": "codeBlock",
+      "attrs": { "language": "bash" },
+      "content": [
+        { "type": "text", "text": "curl -s https://api.example.com/health\n{\"status\": \"ok\"}" }
+      ]
+    },
+    {
+      "type": "panel",
+      "attrs": { "panelType": "success" },
+      "content": [
+        { "type": "paragraph", "content": [{ "type": "text", "text": "Verified in staging — ready for production." }] }
+      ]
+    }
+  ]
+}
+ENDJSON
+
+acli jira workitem comment create --key "KEY-123" --body-file /tmp/jira-comment.json
+rm -f /tmp/jira-comment.json
+```
+
+### Workflow: Transition and Comment in One Go
+
+```bash
+# Move ticket and leave a note
+acli jira workitem transition --key KEY-123 --status "In Review"
+acli jira workitem comment create --key KEY-123 --body "Ready for code review. Changes in PR #456."
+```
+
+### Workflow: Browse Confluence
+
+```bash
+# List all spaces you have access to
+acli confluence space list --json
+
+# View a specific space
+acli confluence space view --key "BE" --json
+
+# Read a page by ID (with full content in storage format)
+acli confluence page view --id 123456 --body-format storage --json
+
+# Read a page with labels and version history
+acli confluence page view --id 123456 --include-labels --include-versions --json
+```
+
+> **For full-text search** across Confluence (not yet supported by acli), use the browser: open `https://<your-site>.atlassian.net/wiki/search?text=<query>` or use the Confluence REST API via `curl`.
+
+### Workflow: Bulk-Update Sprint Tickets
+
+```bash
+# First, see what will be affected (safety check — always do this first!)
+acli jira workitem search --jql "sprint in openSprints() AND status = 'To Do'" --json
+
+# Then transition all together
+acli jira workitem transition --jql "sprint in openSprints() AND status = 'To Do'" --status "In Progress"
+```
+
 ## Detailed Command Reference
 
 For complete flag details, parameters, and examples for every command:
 
 - **Jira work item commands** (create, edit, search, assign, transition, comment, clone, link, archive, attachment, watcher): See [references/jira-workitem-commands.md](references/jira-workitem-commands.md)
-- **All other commands** (jira project/board/sprint/filter/dashboard/field, admin, rovodev, feedback): See [references/other-commands.md](references/other-commands.md)
+- **All other commands** (jira project/board/sprint/filter/dashboard/field, confluence, admin, rovodev, feedback): See [references/other-commands.md](references/other-commands.md)
