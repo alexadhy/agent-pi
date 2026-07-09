@@ -84,7 +84,7 @@ function parseYamlSimple(content: string): any {
     const descMatch = trimmed.match(/^description:\s*(.+)$/);
     if (descMatch) { result.description = descMatch[1]; continue; }
 
-    const phaseMatch = trimmed.match(/^  -\s*phase:\s*(.+)$/);
+    const phaseMatch = trimmed.match(/^-\s*phase:\s*(.+)$/);
     if (phaseMatch) {
       if (currentStep) result.steps.push(currentStep);
       currentStep = { phase: phaseMatch[1], actions: [] };

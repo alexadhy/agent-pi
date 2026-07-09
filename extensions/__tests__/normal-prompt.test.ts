@@ -23,14 +23,14 @@ describe("buildNormalPrompt", () => {
 		}
 	});
 
-	it("with commanderAvailable: true, contains commander_task", () => {
+	it("with commanderAvailable: true, contains orch_task_add", () => {
 		const result = buildNormalPrompt({ commanderAvailable: true, activeChain: null, activePipeline: null });
-		expect(result).toContain("commander_task");
+		expect(result).toContain("orch_task_add");
 	});
 
-	it("with commanderAvailable: false, does NOT contain commander_task", () => {
+	it("with commanderAvailable: false, still mentions orch_task_add", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
-		expect(result).not.toContain("commander_task");
+		expect(result).toContain("orch_task");
 	});
 
 	it("with activeChain set, contains chain name", () => {
@@ -59,22 +59,25 @@ describe("buildNormalPrompt", () => {
 	});
 });
 
-describe("buildCommanderSection — Commander-first enforcement", () => {
-	it("contains 'ALWAYS' to enforce Commander-first usage", () => {
-		expect(buildCommanderSection()).toContain("ALWAYS");
+describe("buildCommanderSection — Orchestrator references", () => {
+	it("contains 'orch_task_add/list/update' references", () => {
+		expect(buildCommanderSection()).toContain("orch_task_add");
+	});
+
+	it("contains 'mailbox_send' references", () => {
+		expect(buildCommanderSection()).toContain("mailbox_send");
 	});
 });
 
-describe("buildNormalPrompt — Commander task guidance", () => {
-	it("with commanderAvailable: true, mentions commander_mailbox in task guidance", () => {
+describe("buildNormalPrompt — Orchestrator task guidance", () => {
+	it("with commanderAvailable: true, mentions mailbox_send in task guidance", () => {
 		const result = buildNormalPrompt({ commanderAvailable: true, activeChain: null, activePipeline: null });
-		expect(result).toContain("commander_mailbox");
+		expect(result).toContain("mailbox_send");
 	});
 
-	it("with commanderAvailable: false, includes Commander-offline note", () => {
+	it("with commanderAvailable: false, includes orchestrator note", () => {
 		const result = buildNormalPrompt({ commanderAvailable: false, activeChain: null, activePipeline: null });
-		expect(result.toLowerCase()).toContain("commander");
-		expect(result.toLowerCase()).toContain("offline");
+		expect(result).toContain("orch_task");
 	});
 });
 
@@ -85,16 +88,16 @@ describe("buildCommanderSection", () => {
 		expect(result.length).toBeGreaterThan(0);
 	});
 
-	it("contains commander_task", () => {
-		expect(buildCommanderSection()).toContain("commander_task");
+	it("contains orch_task_add instead of commander_task", () => {
+		expect(buildCommanderSection()).toContain("orch_task_add");
 	});
 
-	it("contains commander_task", () => {
-		expect(buildCommanderSection()).toContain("commander_task");
+	it("contains mailbox_send instead of commander_mailbox", () => {
+		expect(buildCommanderSection()).toContain("mailbox_send");
 	});
 
-	it("contains commander_mailbox", () => {
-		expect(buildCommanderSection()).toContain("commander_mailbox");
+	it("contains mailbox_inbox instead of commander_mailbox inbox", () => {
+		expect(buildCommanderSection()).toContain("mailbox_inbox");
 	});
 });
 

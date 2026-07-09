@@ -22,8 +22,8 @@ describe("PLAN_PROMPT", () => {
 		expect(PLAN_PROMPT.toLowerCase()).toContain("implement");
 	});
 
-	it("contains 'commander_task'", () => {
-		expect(PLAN_PROMPT).toContain("commander_task");
+	it("contains 'orch_task_add'", () => {
+		expect(PLAN_PROMPT).toContain("orch_task_add");
 	});
 
 	it("contains '.context/todo.md'", () => {
@@ -31,9 +31,17 @@ describe("PLAN_PROMPT", () => {
 	});
 });
 
-describe("PLAN_PROMPT — Commander-first enforcement", () => {
-	it("contains 'ALWAYS' for Commander usage", () => {
+describe("PLAN_PROMPT — Orchestrator enforcement", () => {
+	it("contains 'ALWAYS' for orchestrator usage", () => {
 		expect(PLAN_PROMPT).toContain("ALWAYS");
+	});
+
+	it("references orch_task_add instead of commander_task", () => {
+		expect(PLAN_PROMPT).toContain("orch_task_add");
+	});
+
+	it("references mailbox_send instead of commander_mailbox", () => {
+		expect(PLAN_PROMPT).toContain("mailbox_send");
 	});
 });
 
@@ -106,9 +114,21 @@ describe("PLAN_PROMPT — structured plan format", () => {
 	});
 });
 
-describe("SPEC_PROMPT — Commander-first enforcement", () => {
-	it("contains 'ALWAYS' for Commander usage", () => {
+describe("SPEC_PROMPT — Orchestrator enforcement", () => {
+	it("contains 'ALWAYS' for orchestrator usage", () => {
 		expect(SPEC_PROMPT).toContain("ALWAYS");
+	});
+
+	it("references show_spec instead of commander_spec", () => {
+		expect(SPEC_PROMPT).toContain("show_spec");
+	});
+
+	it("references workflow_get instead of commander_workflow", () => {
+		expect(SPEC_PROMPT).toContain("workflow_get");
+	});
+
+	it("references mailbox_send instead of commander_mailbox", () => {
+		expect(SPEC_PROMPT).toContain("mailbox_send");
 	});
 });
 
@@ -130,7 +150,7 @@ describe("SPEC_PROMPT", () => {
 		expect(SPEC_PROMPT).toContain("requirements.md");
 	});
 
-	it("contains 'commander_mailbox'", () => {
-		expect(SPEC_PROMPT).toContain("commander_mailbox");
+	it("references mailbox_send instead of commander_mailbox", () => {
+		expect(SPEC_PROMPT).toContain("mailbox_send");
 	});
 });
