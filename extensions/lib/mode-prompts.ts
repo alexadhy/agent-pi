@@ -1,15 +1,15 @@
 // ABOUTME: System prompt templates injected by mode-cycler for each operational mode.
 // ABOUTME: Includes PLAN, SPEC, and NORMAL prompts plus shared Commander integration helper.
 
-/** Shared Commander integration section appended to mode prompts when Commander is available. */
+/** Shared Orchestrator integration section appended to mode prompts. */
 export function buildCommanderSection(): string {
-	return `\n## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_task\` — track tasks in the Commander dashboard (auto-synced from local tasks)
-- \`commander_mailbox\` — ALWAYS send status updates at task start and completion
+	return `\n## Orchestrator Integration
+Use the orchestrator tools for dashboard visibility:
+- \`orch_task_add/list/update\` — track tasks in the orchestrator dashboard
+- \`mailbox_send\` — send status updates to the dashboard
 
 ### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "<your-name>" }\`
+- Check your inbox periodically: \`mailbox_inbox { agent_name: "<your-name>" }\`
 - Send status at start, milestones, and completion
 - Warm, professional, collaborative tone — no emojis anywhere`;
 }
@@ -33,8 +33,8 @@ export function buildNormalPrompt(opts: NormalPromptOpts): string {
 
 	const commanderSection = opts.commanderAvailable
 		? buildCommanderSection()
-		: `\n## Commander Integration
-Commander is offline. Tasks are tracked locally only. Commander tools will soft-fail silently.`;
+		: `\n## Orchestrator Integration
+Orchestrator is active. Use \`orch_task_add/list/update\` for task tracking, \`mailbox_send\` for messaging.`;
 
 	// Scout delegation section — when a scout is pre-spawned and ready
 	const scoutSection = opts.scoutId != null ? `
@@ -87,7 +87,7 @@ ${scoutSection}
 3. Otherwise, call \`set_mode\` immediately with the best mode and include a \`reason\`.
    Explain your choice in your response — no need to ask for permission first.
 4. After calling set_mode, define your tasks with \`tasks new-list\` + \`tasks add\`.
-   If the task list has 4+ steps, add a final task: "Present completion report" (using \`show_report\`)${opts.commanderAvailable ? " (auto-synced to Commander). Send a \`commander_mailbox\` status update when starting work." : "."}
+   If the task list has 4+ steps, add a final task: "Present completion report" (using \`show_report\`)${opts.commanderAvailable ? " (auto-synced to orchestrator)." : "."}
 
 ## Mode Availability
 - CHAIN: ${chainStatus}
@@ -271,9 +271,9 @@ Reference actual code — no hand-waving.>
 - Check \`subagent_list\` if unsure about active agent status before spawning
 - Use \`subagent_cleanup {}\` to clear stale/zombie agents if needed
 
-## Commander Integration (ALWAYS use when connected)
-- ALWAYS track tasks: \`commander_task\` for cross-session tracking
-- ALWAYS broadcast status: \`commander_mailbox\` at plan start, approval, and completion
+## Orchestrator Integration (ALWAYS use)
+- ALWAYS track tasks: \`orch_task_add/list/update\` for cross-session tracking
+- ALWAYS broadcast status: \`mailbox_send\` at plan start, approval, and completion
 `;
 
 /** Context-os spec-driven workflow: Q&A → spec → Commander → implement. */
@@ -315,8 +315,8 @@ Existing Code to Leverage, Out of Scope
 Once approved, proceed with implementation.
 Optionally use /microtasks to break spec into executable tasks.
 
-## Commander Integration (ALWAYS use when connected)
-- ALWAYS use commander_spec: create/shape/write operations for tracking
-- ALWAYS use commander_workflow template:get contextos: get structured templates
-- ALWAYS use commander_mailbox: send status at spec creation, shaping, and approval
+## Orchestrator Integration (ALWAYS use)
+- ALWAYS use \`show_spec\` to open the spec viewer for approval flow
+- ALWAYS use \`workflow_get { name: "contextos" }\` to get structured templates
+- ALWAYS use \`mailbox_send\` to send status at spec creation, shaping, and approval
 `;

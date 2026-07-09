@@ -1138,21 +1138,18 @@ export default function (pi: ExtensionAPI) {
       })
       .join("\n\n");
 
-    const commanderAvailable = !!(globalThis as any).__piCommanderAvailable;
-    const commanderSection = commanderAvailable
-      ? `
+    const commanderSection = `
 
-## Commander Integration (REQUIRED)
-Commander is connected. ALWAYS use these tools for dashboard visibility:
-- \`commander_session { operation: "file:open", file_path: <path> }\` — display key files in Commander's floating viewer
-- \`commander_task\` — track tasks in the Commander dashboard
-- \`commander_mailbox\` — send status updates to the dashboard
+## Orchestrator Integration
+Use the orchestrator tools for dashboard visibility:
+- \`show_file { file_path: <path> }\` — display key files in the browser viewer
+- \`orch_task_add/list/update\` — track tasks in the orchestrator dashboard
+- \`mailbox_send\` — send status updates to other agents
 
 ### Mailbox Protocol
-- Check your inbox periodically: \`commander_mailbox { operation: "inbox", agent_name: "coordinator" }\`
+- Check your inbox periodically: \`mailbox_inbox { agent_name: "<your-name>" }\`
 - Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere`
-      : "";
+- Warm, professional, collaborative tone — no emojis anywhere`;
 
     return {
       systemPrompt: `You are an agent with a sequential pipeline called "${activeChain.name}" at your disposal.${desc}

@@ -252,7 +252,7 @@ export default function (pi: ExtensionAPI) {
       const scoutId = typeof g.__piScoutId === "number" ? g.__piScoutId : null;
       return {
         systemPrompt: buildNormalPrompt({
-          commanderAvailable: !!g.__piCommanderAvailable,
+          commanderAvailable: true, // orchestrator is always available
           activeChain: g.__piActiveChain || null,
           activePipeline: g.__piActivePipeline || null,
           scoutId,

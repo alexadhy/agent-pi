@@ -603,6 +603,14 @@ export default function (pi: ExtensionAPI) {
     args.push(task);
 
     const textChunks: string[] = [];
+    const canonicalLower = canonicalName.toLowerCase();
+
+    // Register with orchestrator (if available)
+    const orch = (globalThis as any).__piOrchestrator;
+    if (orch) {
+      orch.registerAgent(canonicalLower, canonicalName);
+      orch.updateAgentStatus(canonicalLower, "working");
+    }
 
     return new Promise((resolve) => {
       // Build env
@@ -649,6 +657,14 @@ export default function (pi: ExtensionAPI) {
         setTimeout(() => {
           if (state.status !== "running") removeAgentWidget(state);
         }, 30_000);
+
+        // Update orchestrator on completion
+        if (orch) {
+          orch.updateAgentStatus(
+            canonicalLower,
+            state.status === "done" ? "done" : "error"
+          );
+        }
 
         // Commander sync removed — Commander MCP was never available on this machine
 

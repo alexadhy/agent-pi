@@ -264,6 +264,13 @@ export default function (pi: ExtensionAPI) {
       PI_SUBAGENT: "1",
     };
 
+    // Register with orchestrator (if available)
+    const orch = (globalThis as any).__piOrchestrator;
+    if (orch) {
+      orch.registerAgent(`SA-${state.id}-${state.name}`, state.name);
+      orch.updateAgentStatus(`SA-${state.id}-${state.name}`, "working", state.id);
+    }
+
     return new Promise<void>((resolve) => {
       const startTime = Date.now();
       const isScout = (globalThis as any).__piScoutId === state.id;
@@ -271,6 +278,10 @@ export default function (pi: ExtensionAPI) {
         state.elapsed = Date.now() - startTime;
         invalidateWidget(state.id);
         if (isScout) publishScoutStatus(state);
+        // Update orchestrator heartbeat
+        if (orch && state.status === "running") {
+          orch.updateAgentStatus(`SA-${state.id}-${state.name}`, "working", state.id);
+        }
       }, 1000);
 
       // ── Watchdog: kill agent if it exceeds maxDurationMs ──────────
@@ -312,6 +323,14 @@ export default function (pi: ExtensionAPI) {
             (globalThis as any).__piScoutId = undefined;
             (globalThis as any).__piScoutStatus = undefined;
           }
+        }
+
+        // Update orchestrator on completion
+        if (orch) {
+          orch.updateAgentStatus(
+            `SA-${state.id}-${state.name}`,
+            state.status === "done" ? "done" : "error"
+          );
         }
 
         // Post-dispatch: Commander reconciliation removed (Commander MCP was never available)
