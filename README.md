@@ -16,15 +16,18 @@
 
 [Pi](https://github.com/badlogic/pi-mono) is a terminal-based AI coding agent by [@badlogic](https://github.com/badlogic). Out of the box it's a single-agent assistant with tool use, conversation memory, and a TUI.
 
-**agent** is a Pi package — **43 extensions, 11 themes, and 20+ skills** that transform Pi into something more:
+**agent** is a Pi package — **50+ extensions, 11 themes, and 20+ skills** that transform Pi into something more:
 
 - **6 operational modes** — NORMAL, PLAN, SPEC, PIPELINE, TEAM, CHAIN
-- **Multi-agent orchestration** — dispatch teams, run sequential chains, or execute parallel pipelines
+- **Multi-agent orchestration** — dispatch teams, run sequential chains, execute parallel pipelines, or launch cooperative multi-agent sessions
+- **Local-first architecture** — local task orchestrator, file-based inter-agent mailbox, YAML workflow templates (no external MCP dependencies)
 - **Security hardened** — pre-tool-hook guard blocks destructive commands, detects prompt injection, prevents data exfiltration
-- **Browser-based viewers** — interactive plan review, completion reports with rollback, spec approval with inline comments
+- **Browser-based viewers** — interactive plan review, completion reports with rollback, spec approval with inline comments, remote web chat
 - **11 themes** — Catppuccin, Dracula, Nord, Synthwave, Tokyo Night, and more
 
 Everything is configuration — no forks, no patches. Just extensions, agent definitions, and YAML.
+
+This was started as a fork of great config by @ruizrica, all credits to him 
 
 ## Install
 
@@ -51,17 +54,19 @@ Pi discovers all extensions, themes, and skills automatically.
 3. **Ctrl+X** — Cycle themes
 4. **`/agents-team`** — Switch between agent teams
 5. **`/chain`** — Switch between chain workflows
-6. **`/tex`** — Open Text Tools in the browser
+6. **`/co-op`** — Launch cooperative multi-agent mode (spawn up to 10 agents)
+7. **`/chat`** — Open remote web chat (accessible from phone or tablet)
+8. **`/tex`** — Open Text Tools in the browser
 
 ## Package Structure
 
 ```
 ├── package.json         Pi package manifest
-├── extensions/          43 TypeScript extensions + lib/
+├── extensions/          50+ TypeScript extensions + lib/
 ├── themes/              11 custom terminal themes
-├── skills/              20+ skill packs
-├── agents/              Agent definitions + chain/pipeline/team YAML
-├── commands/            Toolkit slash commands
+├── skills/              20+ skill packs (acli, agent-browser, autoresearch, qa-automation, nano-banana, etc.)
+├── agents/              Agent definitions + chain/pipeline/team YAML + pi-pi specialist agents
+├── commands/            Toolkit slash commands (autoresearch, co-op)
 ├── prompts/             Prompt templates
 └── tex/                 Text Tools — standalone text manipulation app
 ```
@@ -83,8 +88,7 @@ Pi discovers all extensions, themes, and skills automatically.
 | Extension | Description |
 |-----------|-------------|
 | **tasks** | Task discipline — define tasks before tools unlock; idle → inprogress → done lifecycle |
-| **commander-mcp** | Bridge exposing Commander dashboard tools as native Pi tools |
-| **commander-tracker** | Reconciles local tasks with Commander; retries failed sync |
+| **agent-orchestrator** | Local task groups, waves, agent registry, and live browser dashboard |
 
 ### Operational Modes
 
@@ -101,7 +105,10 @@ Each mode injects a tailored system prompt. PLAN mode enforces plan-first workfl
 | **agent-team** | Dispatch-only orchestrator — primary agent delegates to specialists via `dispatch_agent` |
 | **agent-chain** | Sequential pipeline — each step's output feeds into the next via `$INPUT` |
 | **pipeline-team** | 5-phase hybrid — UNDERSTAND → GATHER → PLAN → EXECUTE → REVIEW |
-| **subagent-widget** | Background subagent management with live status widgets |
+| **subagent-widget** | Background subagent management with live status widgets, role-based watchdog timeouts |
+| **agent-mailbox** | File-based inter-agent messaging — agents send/receive messages via `mailbox_send` / `mailbox_inbox` |
+| **agent-workflows** | YAML workflow template system — list, get, and create workflow templates |
+| **agent-coop** | Cooperative multi-agent mode via `/co-op` — up to 10 agents sharing discoveries |
 | **toolkit-commands** | Dynamic slash commands from markdown files |
 
 ### Security
@@ -121,6 +128,7 @@ Each mode injects a tailored system prompt. PLAN mode enforces plan-first workfl
 | **spec-viewer** | Browser GUI — multi-page spec review with comments and visual gallery |
 | **file-viewer** | Browser GUI — syntax-highlighted file viewer with optional editing |
 | **reports-viewer** | Searchable `/reports` browser view for all persisted artifacts |
+| **web-chat** | Remote access from any device via `/chat` — WebSocket streaming, PIN auth, Cloudflare tunnel, QR codes |
 
 <div align="center">
 <img src="docs/screenshots/plan-viewer.png" alt="Plan Viewer — structured plan approval with phases, context, and file action badges" width="720" />
@@ -142,6 +150,7 @@ Each mode injects a tailored system prompt. PLAN mode enforces plan-first workfl
 | **tool-search** | Meta-tool — discover and inspect tools at runtime |
 | **tool-caller** | Meta-tool — invoke any tool programmatically (dynamic composition) |
 | **lean-tools** | Toggle lean mode — agent uses `tool_search` + `call_tool` instead of all tools |
+| **send-email** | Agent email via local outbox — writes to `.pi/mail/outbox/` for later dispatch |
 
 ### Session & Context
 
@@ -158,9 +167,10 @@ Each mode injects a tailored system prompt. PLAN mode enforces plan-first workfl
 | **NORMAL** | Default | Standard coding assistant |
 | **PLAN** | Shift+Tab | Plan-first workflow — analyze → plan → approve → implement → report |
 | **SPEC** | Shift+Tab | Spec-driven — shape → requirements → tasks → implement |
-| **TEAM** | Shift+Tab | Dispatcher mode — primary delegates, specialists execute |
+| **TEAM** | Shift+Tab | Dispatcher mode — primary delegates, specialists execute; agents coordinate via `mailbox_send` / `mailbox_inbox` |
 | **CHAIN** | Shift+Tab | Sequential pipeline — step outputs chain into next step |
 | **PIPELINE** | Shift+Tab | 5-phase hybrid with parallel dispatch |
+| **CO-OP** | `/co-op` | Cooperative multi-agent — spawn up to 10 agents that share discoveries and help each other |
 
 ## Multi-Agent Orchestration
 
@@ -195,6 +205,16 @@ plan-build-review:
 
 Pipelines are defined in `agents/pipeline-team.yaml` and combine sequential phases with parallel agent dispatch.
 
+### Co-op Mode
+
+Cooperative multi-agent mode via `/co-op`. Spawn up to 10 agents that share discoveries through the mailbox (`mailbox_send` / `mailbox_inbox`), request help when stuck, and offer help when done. The coordinator (you) facilitates by forwarding discoveries and handling help requests.
+
+Tasks are tracked with the local orchestrator (`orch_group_create`, `orch_task_add`, `orch_task_update`) and monitored via `orch_dashboard`.
+
+### Subagent Lifecycle
+
+Background subagents have role-based watchdog timeouts: **scout=10min**, builder=30min, reviewer=15min, default=20min. The `subagent_cleanup` tool removes done/error/stale agents, and `subagent_create_batch` auto-cleans before spawning new agents. Duplicate batch spawns are blocked (override with `force: true`).
+
 ## Security
 
 The security system operates at three layers:
@@ -219,6 +239,19 @@ A lightweight, zero-dependency text manipulation app bundled in `tex/`. Open it 
 - **Before/after diff view** — see exactly what changed
 - **No backend, no build step** — single HTML page, works offline
 - **Dark theme** — matches the terminal aesthetic
+
+## Skills
+
+| Skill | Description |
+|-------|-------------|
+| **ACLI** | Atlassian CLI reference — Jira Cloud (create/edit/search/transition work items, manage projects, boards, sprints, filters, dashboards), Confluence (search spaces, read/create/update pages), Atlassian org administration (user management, authentication) |
+| **Autoresearch** | Autonomous research loop — goal → clarify → plan → iterate → findings → implementation; tracks every iteration as an orchestrator task |
+| **QA Automation** | Generic QA testing with agent-device and agent-browser — test flows, web testing, scroll testing, state persistence, device management |
+| **Agent Browser** | Browser testing via Chrome DevTools MCP — authenticated sessions, form automation, capture workflows |
+| **Nano Banana** | Image generation skill with response inspection and test runner |
+| **Slack Web** | Slack webhook integration for notifications and messaging |
+| **Windmill Engineer** | Windmill.dev workflow and script engineering |
+| **Just Bash** | Shell-only execution mode for terminal-native workflows |
 
 ## Troubleshooting
 
