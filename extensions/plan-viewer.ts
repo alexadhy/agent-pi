@@ -37,7 +37,7 @@ import {
 type ViewerPurpose = "plan" | "questions";
 
 interface ViewerResult {
-  action: "approved" | "declined" | "submitted";
+  action: "approved" | "declined" | "refine" | "submitted";
   markdown: string;
   modified: boolean;
   answers?: string;
@@ -475,6 +475,32 @@ export default function (pi: ExtensionAPI) {
       }
 
       // ── Plan mode result ─────────────────────────────────────
+      if (result.action === "refine") {
+        piRef.sendMessage(
+          {
+            customType: "plan-refine-requested",
+            content: `User wants the plan refined. Ask them what needs to change in the plan, then revise and re-present it.`,
+            display: true,
+          },
+          { deliverAs: "followUp" as any, triggerTurn: true },
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `User requested plan refinement. The modified plan is saved at ${file_path}. Ask what needs to change and re-plan.`,
+            },
+          ],
+          details: {
+            action: "refine" as const,
+            purpose: "plan",
+            modified: result.modified,
+            filePath: file_path,
+          },
+        };
+      }
+
       if (result.action === "approved") {
         const modifiedNote = result.modified
           ? " (plan was edited by user — use the updated version)"
@@ -556,6 +582,14 @@ export default function (pi: ExtensionAPI) {
         );
       }
 
+      if (details.action === "refine") {
+        return new Text(
+          outputLine(theme, "warning", "Refine requested — ask user what to change"),
+          0,
+          0,
+        );
+      }
+
       if (details.action === "approved") {
         const modNote = details.modified ? " (edited)" : "";
         return new Text(
@@ -603,7 +637,17 @@ export default function (pi: ExtensionAPI) {
         "plan",
       );
 
-      if (result.action === "approved") {
+      if (result.action === "refine") {
+        piRef.sendMessage(
+          {
+            customType: "plan-refine-requested",
+            content: `Plan needs refinement. Ask the user what needs to change.`,
+            display: true,
+          },
+          { deliverAs: "followUp" as any, triggerTurn: true },
+        );
+        ctx.ui.notify("Refine requested — ask user what to change", "info");
+      } else if (result.action === "approved") {
         piRef.sendMessage(
           {
             customType: "plan-approved",

@@ -647,6 +647,14 @@ ${latteVars}
   }
   .btn-ghost:hover { color: var(--text-muted); background: var(--surface2); }
 
+  .btn-refine {
+    background: transparent;
+    color: var(--warning);
+    border-color: var(--warning);
+    font-weight: 600;
+  }
+  .btn-refine:hover { background: var(--warning-bg); }
+
   .btn-icon {
     width: 32px;
     height: 32px;
@@ -875,6 +883,7 @@ ${latteVars}
     <button class="btn btn-ghost" onclick="downloadStandalone()" title="Download standalone read-only HTML"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Standalone</button>
     <div class="spacer"></div>
     <button class="btn" onclick="decline()" id="btnDecline">Close</button>
+    <button class="btn btn-refine" onclick="refine()" id="btnRefine">Refine</button>
     <button class="btn btn-primary" onclick="approve()" id="btnApprove">
       ${mode === "questions" ? "Submit Answers" : "Approve Plan"}
     </button>
@@ -1480,6 +1489,13 @@ ${latteVars}
     sendResult('declined');
   };
 
+  window.refine = function() {
+    if (currentView === 'raw') {
+      markdown = document.getElementById('rawEditor').value;
+    }
+    sendResult('refine');
+  };
+
   window.copyToClipboard = function() {
     if (currentView === 'raw') {
       markdown = document.getElementById('rawEditor').value;
@@ -1588,6 +1604,10 @@ ${latteVars}
         if (currentView === 'raw') {
           setView('rendered');
         }
+      } else if (action === 'refine') {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-muted);font-family:var(--font);">' +
+          '<div style="text-align:center"><p style="font-size:20px;margin-bottom:8px;">Refine Requested</p>' +
+          '<p style="color:var(--text-dim);">The agent will ask what needs to change. You can close this tab.</p></div></div>';
       } else {
         // Closed/declined — show simple close message
         document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-muted);font-family:var(--font);">' +
