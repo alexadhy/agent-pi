@@ -606,6 +606,17 @@ export default function (pi: ExtensionAPI) {
             msg += `\n(Auto-paused ${demoted.map((t) => `#${t.id}`).join(", ")} → idle. Only one task can be in progress at a time.)`;
           }
 
+          // Auto-clear when all tasks are done — no need for the agent to manually clear
+          const allDone = tasks.every((t) => t.status === "done");
+          if (allDone) {
+            msg += "\n(All tasks complete — list auto-cleared. Use `tasks new-list` for your next batch.)";
+            tasks = [];
+            nextId = 1;
+            listTitle = undefined;
+            listDescription = undefined;
+            syncState = emptySyncState();
+          }
+
           // Commander sync removed — Commander MCP was never available on this machine
 
           const result = {
