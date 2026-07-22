@@ -1,7 +1,7 @@
 {
   "default": {
     "provider": "opencode-go",
-    "model": "minimax-m2.7"
+    "model": "deepseek-v4-pro"
   },
   "agents": {
     "scout": {
@@ -18,7 +18,7 @@
     },
     "documenter": {
       "provider": "opencode-go",
-      "model": "mimo-v2.5-pro"
+      "model": "deepseek-v4-flash"
     },
     "paladin": {
       "provider": "opencode-go",
@@ -26,7 +26,7 @@
     },
     "reviewer": {
       "provider": "opencode-go",
-      "model": "kimi-k2.6"
+      "model": "deepseek-v4-pro"
     },
     "warden": {
       "provider": "opencode-go",
@@ -34,11 +34,11 @@
     },
     "planner": {
       "provider": "opencode-go",
-      "model": "mimo-v2.5-pro"
+      "model": "minimax-m3"
     },
     "tester": {
       "provider": "opencode-go",
-      "model": "mimo-v2.5-pro"
+      "model": "deepseek-v4-flash"
     },
     "herald": {
       "provider": "opencode-go",

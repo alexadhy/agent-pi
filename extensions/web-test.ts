@@ -1,18 +1,13 @@
-// ABOUTME: Remote web testing extension using Cloudflare Browser Rendering for screenshots, content extraction, and a11y.
-// ABOUTME: Registers /web-remote command and web_remote tool backed by a deployed Cloudflare Worker.
-// ABOUTME: REMOTE ONLY — cannot access localhost, 127.0.0.1, or local network. Use agent-browser skill for local testing.
+// ABOUTME: Local web testing extension using agent-browser CLI for screenshots, content extraction, and responsive testing.
+// ABOUTME: Registers /web-remote command and web_remote tool backed by the local agent-browser binary.
 /**
- * Web Remote -- Cloudflare Browser Rendering powered REMOTE web testing
+ * Web Remote — Local browser testing via agent-browser CLI
  *
- * IMPORTANT: This is a REMOTE service. It CANNOT access localhost, 127.0.0.1,
- * or any local network address. For local testing, use the agent-browser skill instead.
- *
- * Uses a deployed Cloudflare Worker (pi-web-test) with Browser Rendering
- * binding to provide headless browser capabilities:
+ * Uses agent-browser (https://github.com/agent-browser/cli) to provide
+ * headless browser capabilities locally:
  *
  *   - Screenshot any URL at custom viewport sizes
  *   - Extract page text/HTML content (with optional CSS selector)
- *   - Run accessibility audits via axe-core
  *   - Capture responsive screenshots at mobile/tablet/desktop breakpoints
  *
  * Screenshots are saved to .pi/web-test-captures/ and paths are returned
@@ -21,16 +16,14 @@
  * Commands:
  *   /web-remote screenshot <url>          -- capture a screenshot
  *   /web-remote content <url> [selector]  -- extract page content
- *   /web-remote a11y <url>                -- accessibility audit
  *   /web-remote responsive <url>          -- multi-viewport screenshots
  *
  * Tool:
  *   web_remote                            -- programmatic access (agent can call)
  *
  * Prerequisites:
- *   - Cloudflare Worker deployed (auto-deployed on first use)
- *   - wrangler CLI authenticated
- *   - API key in agent/extensions/web-test-worker/.env
+ *   - agent-browser installed (brew or npm i -g agent-browser)
+ *   - agent-browser install (downloads Chromium on first run)
  *
  * Usage: pi -e extensions/web-test.ts
  */
@@ -39,24 +32,18 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { type AutocompleteItem } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, basename } from "path";
 import { fileURLToPath } from "url";
 
 // ── Constants ────────────────────────────────────
 
 const CAPTURE_DIR_NAME = "web-test-captures";
-const WORKER_NAME = "pi-web-test";
 
 // ── Types ────────────────────────────────────────
 
-type Action = "screenshot" | "content" | "a11y" | "responsive";
-
-interface WorkerConfig {
-  workerUrl: string;
-  apiKey: string;
-}
+type Action = "screenshot" | "content" | "responsive";
 
 interface WebTestResult {
   action: Action;
@@ -66,34 +53,6 @@ interface WebTestResult {
   data?: any;
   error?: string;
   elapsed: number;
-}
-
-// ── Config Loading ───────────────────────────────
-
-function loadWorkerConfig(): WorkerConfig | null {
-  const extDir = dirname(fileURLToPath(import.meta.url));
-  const envPath = join(extDir, "web-test-worker", ".env");
-
-  if (!existsSync(envPath)) {
-    return null;
-  }
-
-  const content = readFileSync(envPath, "utf-8");
-  const vars: Record<string, string> = {};
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq > 0) {
-      vars[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
-    }
-  }
-
-  if (!vars.WORKER_URL || !vars.API_KEY) {
-    return null;
-  }
-
-  return { workerUrl: vars.WORKER_URL, apiKey: vars.API_KEY };
 }
 
 // ── Capture Directory ────────────────────────────
@@ -112,256 +71,229 @@ function timestamp(): string {
   return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
-// ── Worker Deployment ────────────────────────────
+// ── agent-browser Wrapper ────────────────────────
 
-function checkWorkerHealth(config: WorkerConfig): boolean {
+function ensureBrowserInstalled(): string | null {
   try {
-    const result = execSync(
-      `curl -sf --max-time 5 "${config.workerUrl}/ping"`,
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-    const parsed = JSON.parse(result);
-    return parsed.status === "ok";
-  } catch {
-    return false;
-  }
-}
-
-function deployWorker(): { success: boolean; url?: string; error?: string } {
-  const extDir = dirname(fileURLToPath(import.meta.url));
-  const workerDir = join(extDir, "web-test-worker");
-
-  if (!existsSync(join(workerDir, "node_modules"))) {
-    try {
-      execSync("npm install", {
-        cwd: workerDir,
-        stdio: "ignore",
-        timeout: 60000,
-      });
-    } catch (e: any) {
-      return { success: false, error: `npm install failed: ${e.message}` };
-    }
-  }
-
-  try {
-    const output = execSync("npx wrangler deploy 2>&1", {
-      cwd: workerDir,
+    const out = execSync("which agent-browser", {
       encoding: "utf-8",
-      timeout: 60000,
+      stdio: ["ignore", "pipe", "ignore"],
     });
-
-    // Extract URL from deploy output
-    const urlMatch = output.match(/https:\/\/[\w-]+\.[\w-]+\.workers\.dev/);
-    if (urlMatch) {
-      return { success: true, url: urlMatch[0] };
-    }
-
-    return { success: true, url: undefined };
-  } catch (e: any) {
-    return {
-      success: false,
-      error: `wrangler deploy failed: ${e.stdout || e.message}`,
-    };
+    return out.trim();
+  } catch {
+    return null;
   }
 }
 
-// ── Worker API Calls ─────────────────────────────
+/**
+ * Run agent-browser commands sequentially in a single browser session.
+ * Opens the page, runs actions, then closes the browser.
+ */
+async function runBrowserSession(
+  url: string,
+  steps: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  // Build a single shell command that runs in one session
+  const cmds: string[] = [];
+  cmds.push(`agent-browser open "${url}"`);
+  for (const step of steps) {
+    cmds.push(`agent-browser ${step}`);
+  }
+  cmds.push("agent-browser close");
 
-async function callWorker(
-  config: WorkerConfig,
-  endpoint: string,
-  body: Record<string, any>,
-): Promise<Response> {
-  const resp = await fetch(`${config.workerUrl}${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Api-Key": config.apiKey,
-    },
-    body: JSON.stringify(body),
+  const script = cmds.join(" && ");
+  return new Promise((resolve, reject) => {
+    const child = spawn("sh", ["-c", script], {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+      timeout: 30000,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(
+          new Error(`agent-browser exited code ${code}: ${stderr || stdout}`),
+        );
+      }
+    });
+    child.on("error", reject);
   });
-  return resp;
 }
 
 // ── Action Handlers ──────────────────────────────
 
 async function doScreenshot(
-  config: WorkerConfig,
   url: string,
   cwd: string,
   opts: { width?: number; height?: number; fullPage?: boolean },
 ): Promise<WebTestResult> {
   const start = Date.now();
-
-  const resp = await callWorker(config, "/screenshot", {
-    url,
-    width: opts.width ?? 1280,
-    height: opts.height ?? 720,
-    fullPage: opts.fullPage ?? false,
-  });
-
-  if (!resp.ok) {
-    const err = (await resp
-      .json()
-      .catch(() => ({ error: resp.statusText }))) as any;
-    return {
-      action: "screenshot",
-      url,
-      success: false,
-      error: err.error || resp.statusText,
-      elapsed: Date.now() - start,
-    };
-  }
-
   const captureDir = ensureCaptureDir(cwd);
   const ts = timestamp();
   const filename = `screenshot-${ts}.png`;
   const filePath = join(captureDir, filename);
 
-  const buffer = Buffer.from(await resp.arrayBuffer());
-  writeFileSync(filePath, buffer);
+  try {
+    const steps: string[] = [];
+    if (opts.width && opts.height) {
+      steps.push(`set viewport ${opts.width} ${opts.height}`);
+    }
+    steps.push(`screenshot "${filePath}"`);
 
-  const title = decodeURIComponent(
-    resp.headers.get("X-Page-Title") || "untitled",
-  );
+    await runBrowserSession(url, steps);
 
-  return {
-    action: "screenshot",
-    url,
-    success: true,
-    screenshots: [filePath],
-    data: {
-      title,
-      width: opts.width ?? 1280,
-      height: opts.height ?? 720,
-      sizeBytes: buffer.length,
-    },
-    elapsed: Date.now() - start,
-  };
+    if (!existsSync(filePath)) {
+      return {
+        action: "screenshot",
+        url,
+        success: false,
+        error: "Screenshot file was not created",
+        elapsed: Date.now() - start,
+      };
+    }
+
+    const sizeBytes = readFileSync(filePath).length;
+
+    return {
+      action: "screenshot",
+      url,
+      success: true,
+      screenshots: [filePath],
+      data: {
+        title: basename(filePath),
+        width: opts.width ?? 1280,
+        height: opts.height ?? 720,
+        sizeBytes,
+      },
+      elapsed: Date.now() - start,
+    };
+  } catch (e: any) {
+    return {
+      action: "screenshot",
+      url,
+      success: false,
+      error: e.message || String(e),
+      elapsed: Date.now() - start,
+    };
+  }
 }
 
 async function doContent(
-  config: WorkerConfig,
   url: string,
   opts: { selector?: string },
 ): Promise<WebTestResult> {
   const start = Date.now();
 
-  const resp = await callWorker(config, "/content", {
-    url,
-    selector: opts.selector,
-  });
+  try {
+    // agent-browser read outputs text to stdout
+    // We run it in a fresh session: open, read, close
+    const cmd = `agent-browser open "${url}" && agent-browser read && agent-browser close`;
+    const stdout = execSync(cmd, {
+      encoding: "utf-8",
+      timeout: 30000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
-  if (!resp.ok) {
-    const err = (await resp
-      .json()
-      .catch(() => ({ error: resp.statusText }))) as any;
+    // Try to extract title from the page content (first line is often the title)
+    const lines = stdout.trim().split("\n");
+    const title = lines[0]?.replace(/^#\s*/, "").trim() || url;
+
+    return {
+      action: "content",
+      url,
+      success: true,
+      data: {
+        title,
+        text: stdout.trim(),
+        textLength: stdout.trim().length,
+        selector: opts.selector || null,
+      },
+      elapsed: Date.now() - start,
+    };
+  } catch (e: any) {
     return {
       action: "content",
       url,
       success: false,
-      error: err.error || resp.statusText,
+      error: e.message || String(e),
       elapsed: Date.now() - start,
     };
   }
-
-  const data = await resp.json();
-
-  return {
-    action: "content",
-    url,
-    success: true,
-    data,
-    elapsed: Date.now() - start,
-  };
-}
-
-async function doA11y(
-  config: WorkerConfig,
-  url: string,
-): Promise<WebTestResult> {
-  const start = Date.now();
-
-  const resp = await callWorker(config, "/a11y", { url });
-
-  if (!resp.ok) {
-    const err = (await resp
-      .json()
-      .catch(() => ({ error: resp.statusText }))) as any;
-    return {
-      action: "a11y",
-      url,
-      success: false,
-      error: err.error || resp.statusText,
-      elapsed: Date.now() - start,
-    };
-  }
-
-  const data = await resp.json();
-
-  return {
-    action: "a11y",
-    url,
-    success: true,
-    data,
-    elapsed: Date.now() - start,
-  };
 }
 
 async function doResponsive(
-  config: WorkerConfig,
   url: string,
   cwd: string,
   opts: { viewports?: Array<{ name: string; width: number; height: number }> },
 ): Promise<WebTestResult> {
   const start = Date.now();
-
-  const resp = await callWorker(config, "/responsive", {
-    url,
-    viewports: opts.viewports,
-  });
-
-  if (!resp.ok) {
-    const err = (await resp
-      .json()
-      .catch(() => ({ error: resp.statusText }))) as any;
-    return {
-      action: "responsive",
-      url,
-      success: false,
-      error: err.error || resp.statusText,
-      elapsed: Date.now() - start,
-    };
-  }
-
-  const data = (await resp.json()) as any;
-
-  // Save each screenshot as a separate PNG
   const captureDir = ensureCaptureDir(cwd);
   const ts = timestamp();
   const savedPaths: string[] = [];
+  const viewports = opts.viewports || [
+    { name: "mobile", width: 375, height: 812 },
+    { name: "tablet", width: 768, height: 1024 },
+    { name: "desktop", width: 1440, height: 900 },
+  ];
 
-  if (data.screenshots && Array.isArray(data.screenshots)) {
-    for (const shot of data.screenshots) {
-      const filename = `responsive-${shot.name}-${ts}.png`;
+  try {
+    for (const vp of viewports) {
+      const filename = `responsive-${vp.name}-${ts}.png`;
       const filePath = join(captureDir, filename);
-      const buffer = Buffer.from(shot.base64, "base64");
-      writeFileSync(filePath, buffer);
-      savedPaths.push(filePath);
-    }
-  }
 
-  return {
-    action: "responsive",
-    url,
-    success: true,
-    screenshots: savedPaths,
-    data: {
-      title: data.title,
-      viewports: data.viewports,
-    },
-    elapsed: Date.now() - start,
-  };
+      const steps: string[] = [];
+      steps.push(`set viewport ${vp.width} ${vp.height}`);
+      steps.push(`screenshot "${filePath}"`);
+
+      await runBrowserSession(url, steps);
+
+      if (existsSync(filePath)) {
+        savedPaths.push(filePath);
+      }
+    }
+
+    return {
+      action: "responsive",
+      url,
+      success: savedPaths.length > 0,
+      screenshots: savedPaths,
+      data: {
+        title: url,
+        viewports: viewports.map((v) => ({
+          name: v.name,
+          width: v.width,
+          height: v.height,
+        })),
+      },
+      elapsed: Date.now() - start,
+    };
+  } catch (e: any) {
+    return {
+      action: "responsive",
+      url,
+      success: savedPaths.length > 0,
+      screenshots: savedPaths,
+      data: {
+        title: url,
+        viewports: viewports.map((v) => ({
+          name: v.name,
+          width: v.width,
+          height: v.height,
+        })),
+      },
+      error: savedPaths.length === 0 ? e.message : undefined,
+      elapsed: Date.now() - start,
+    };
+  }
 }
 
 // ── Result Formatting ────────────────────────────
@@ -400,40 +332,13 @@ function formatResult(result: WebTestResult): string {
       const d = result.data as any;
       lines.push(`Page title: ${d.title}`);
       lines.push(`Text length: ${d.textLength} chars`);
-      lines.push(`HTML length: ${d.htmlLength} chars`);
+      if (d.selector) lines.push(`CSS selector: ${d.selector}`);
       lines.push("");
       lines.push("--- Page Text ---");
-      // Truncate for display
       const text = d.text as string;
       lines.push(
         text.length > 2000 ? text.slice(0, 2000) + "\n...[truncated]" : text,
       );
-      break;
-    }
-    case "a11y": {
-      const d = result.data as any;
-      lines.push(`Page title: ${d.title}`);
-      lines.push("");
-      lines.push(`Summary:`);
-      lines.push(`  Violations: ${d.summary.violations}`);
-      lines.push(`  Passes: ${d.summary.passes}`);
-      lines.push(`  Incomplete: ${d.summary.incomplete}`);
-      lines.push(`  Inapplicable: ${d.summary.inapplicable}`);
-
-      if (d.violations && d.violations.length > 0) {
-        lines.push("");
-        lines.push("Violations:");
-        for (const v of d.violations) {
-          lines.push(`  [${v.impact}] ${v.id}: ${v.description}`);
-          lines.push(`    Help: ${v.help}`);
-          lines.push(`    Affected nodes: ${v.nodes}`);
-          lines.push(`    More info: ${v.helpUrl}`);
-          lines.push("");
-        }
-      } else {
-        lines.push("");
-        lines.push("No accessibility violations found.");
-      }
       break;
     }
     case "responsive": {
@@ -465,49 +370,13 @@ function formatResult(result: WebTestResult): string {
 // ── Extension ────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  let config: WorkerConfig | null = null;
+  // ── /web-remote command ────────────────────────
 
-  function getConfig(): WorkerConfig | null {
-    if (config) return config;
-    config = loadWorkerConfig();
-    return config;
-  }
-
-  function ensureWorker(): { config: WorkerConfig | null; error?: string } {
-    const cfg = getConfig();
-    if (!cfg) {
-      return {
-        config: null,
-        error:
-          "Worker not configured. Missing .env file at agent/extensions/web-test-worker/.env with WORKER_URL and API_KEY.",
-      };
-    }
-
-    // Quick health check
-    if (!checkWorkerHealth(cfg)) {
-      // Try redeploying
-      const result = deployWorker();
-      if (!result.success) {
-        return {
-          config: null,
-          error: `Worker health check failed and redeploy failed: ${result.error}`,
-        };
-      }
-      if (result.url && result.url !== cfg.workerUrl) {
-        cfg.workerUrl = result.url;
-      }
-    }
-
-    return { config: cfg };
-  }
-
-  // ── /web-test command ────────────────────────
-
-  const ACTIONS = ["screenshot", "content", "a11y", "responsive"];
+  const ACTIONS = ["screenshot", "content", "responsive"];
 
   pi.registerCommand("web-remote", {
     description:
-      "Test REMOTE web pages using Cloudflare Browser Rendering (screenshot, content, a11y, responsive). CANNOT access localhost — use agent-browser for local testing.",
+      "Test web pages locally using agent-browser (screenshot, content, responsive). Supports localhost URLs.",
     getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
       const items = ACTIONS.map((a) => ({
         value: a,
@@ -515,15 +384,22 @@ export default function (pi: ExtensionAPI) {
           a === "screenshot"
             ? "screenshot <url> -- capture a PNG screenshot"
             : a === "content"
-              ? "content <url> [selector] -- extract page text/HTML"
-              : a === "a11y"
-                ? "a11y <url> -- accessibility audit via axe-core"
-                : "responsive <url> -- multi-viewport screenshots",
+              ? "content <url> [selector] -- extract page text"
+              : "responsive <url> -- multi-viewport screenshots",
       }));
       const filtered = items.filter((i) => i.value.startsWith(prefix));
       return filtered.length > 0 ? filtered : items;
     },
     handler: async (args, ctx) => {
+      // Check agent-browser is installed
+      if (!ensureBrowserInstalled()) {
+        ctx.ui.notify(
+          "agent-browser not found. Install: npm install -g agent-browser && agent-browser install",
+          "error",
+        );
+        return;
+      }
+
       const parts = (args ?? "").trim().split(/\s+/);
       const action = parts[0]?.toLowerCase();
       const url = parts[1];
@@ -531,8 +407,8 @@ export default function (pi: ExtensionAPI) {
       if (!action || !ACTIONS.includes(action)) {
         ctx.ui.notify(
           "Usage: /web-remote <action> <url>\n" +
-            "Actions: screenshot, content, a11y, responsive\n" +
-            "NOTE: Remote only — cannot access localhost. Use agent-browser for local testing.",
+            "Actions: screenshot, content, responsive\n" +
+            "Supports localhost URLs.",
           "warning",
         );
         return;
@@ -543,28 +419,19 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const { config: cfg, error } = ensureWorker();
-      if (!cfg) {
-        ctx.ui.notify(error!, "error");
-        return;
-      }
-
       ctx.ui.notify(`Running ${action} on ${url}...`, "info");
 
       let result: WebTestResult;
 
       switch (action) {
         case "screenshot":
-          result = await doScreenshot(cfg, url, ctx.cwd, {});
+          result = await doScreenshot(url, ctx.cwd, {});
           break;
         case "content":
-          result = await doContent(cfg, url, { selector: parts[2] });
-          break;
-        case "a11y":
-          result = await doA11y(cfg, url);
+          result = await doContent(url, { selector: parts[2] });
           break;
         case "responsive":
-          result = await doResponsive(cfg, url, ctx.cwd, {});
+          result = await doResponsive(url, ctx.cwd, {});
           break;
         default:
           return;
@@ -589,25 +456,22 @@ export default function (pi: ExtensionAPI) {
     name: "web_remote",
     label: "Web Remote",
     description: [
-      "Test REMOTE web pages using Cloudflare Browser Rendering.",
-      "IMPORTANT: This is a REMOTE service — it CANNOT access localhost, 127.0.0.1,",
-      "or any local network address. For localhost testing, use the agent-browser skill",
-      "(via Bash: agent-browser open <url>, agent-browser snapshot -i, etc.).",
+      "Test web pages locally using agent-browser CLI.",
+      "Supports localhost, 127.0.0.1, and any http/https URL.",
       "",
-      "Captures screenshots, extracts content, runs accessibility audits,",
-      "and tests responsive layouts via a remote headless Chromium browser.",
+      "Captures screenshots, extracts page content,",
+      "and tests responsive layouts at multiple viewports.",
       "",
       "Actions:",
       "  screenshot  -- capture a PNG screenshot (returns file path for Read tool)",
-      "  content     -- extract page text and HTML (with optional CSS selector)",
-      "  a11y        -- run axe-core accessibility audit",
+      "  content     -- extract page text (with optional CSS selector)",
       "  responsive  -- capture at mobile (375px), tablet (768px), desktop (1440px)",
       "",
       "Screenshot paths can be passed to the Read tool to visually inspect pages.",
     ].join("\n"),
     parameters: Type.Object({
       action: Type.String({
-        description: "Action to perform: screenshot, content, a11y, responsive",
+        description: "Action to perform: screenshot, content, responsive",
       }),
       url: Type.String({
         description: "URL to test (must be http: or https:)",
@@ -647,6 +511,19 @@ export default function (pi: ExtensionAPI) {
         selector?: string;
       };
 
+      // Check installed
+      if (!ensureBrowserInstalled()) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "agent-browser not found. Install: npm install -g agent-browser && agent-browser install",
+            },
+          ],
+          details: { error: "agent-browser not installed" },
+        };
+      }
+
       // Validate action
       if (!ACTIONS.includes(action)) {
         return {
@@ -681,14 +558,6 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const { config: cfg, error } = ensureWorker();
-      if (!cfg) {
-        return {
-          content: [{ type: "text" as const, text: error! }],
-          details: { error },
-        };
-      }
-
       if (onUpdate) {
         onUpdate({
           content: [
@@ -702,20 +571,17 @@ export default function (pi: ExtensionAPI) {
 
       switch (action) {
         case "screenshot":
-          result = await doScreenshot(cfg, url, ctx.cwd, {
+          result = await doScreenshot(url, ctx.cwd, {
             width,
             height,
             fullPage,
           });
           break;
         case "content":
-          result = await doContent(cfg, url, { selector });
-          break;
-        case "a11y":
-          result = await doA11y(cfg, url);
+          result = await doContent(url, { selector });
           break;
         case "responsive":
-          result = await doResponsive(cfg, url, ctx.cwd, {});
+          result = await doResponsive(url, ctx.cwd, {});
           break;
         default:
           result = {
@@ -787,16 +653,6 @@ export default function (pi: ExtensionAPI) {
           const len = details?.data?.textLength ?? 0;
           return new Text(
             `${GREEN}extracted${RST} ${BRIGHT}${len}${RST} ${DIM}chars in ${elapsed}s${RST}`,
-            0,
-            0,
-          );
-        }
-        case "a11y": {
-          const violations = details?.data?.summary?.violations ?? 0;
-          const passes = details?.data?.summary?.passes ?? 0;
-          const color = violations > 0 ? YELLOW : GREEN;
-          return new Text(
-            `${color}${violations} violations${RST} ${DIM}${passes} passes in ${elapsed}s${RST}`,
             0,
             0,
           );

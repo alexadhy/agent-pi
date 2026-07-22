@@ -379,23 +379,39 @@ export default function (pi: ExtensionAPI) {
     const pending = tasks.filter((t) => t.status !== "done");
     const active = tasks.filter((t) => t.status === "inprogress");
 
-    // No tasks yet — nudge but don't block so agents can explore first
+    // Read current mode from globalThis (set by mode-cycler).
+    // Hard-enforce task list in any non-NORMAL mode.
+    const currentMode = (globalThis as any).__piCurrentMode ?? "NORMAL";
+    const isNonNormal = currentMode !== "NORMAL";
+
+    // No tasks yet — only block in non-NORMAL modes
     if (tasks.length === 0) {
+      if (isNonNormal) {
+        return {
+          block: true,
+          reason:
+            "No tasks defined. You are in " + currentMode + " mode. You MUST use `tasks new-list` to define tasks before using any other tools.",
+        };
+      }
       return { block: false };
     }
     if (pending.length === 0) {
       return {
         block: true,
         reason:
-          "All tasks are done. You MUST use `tasks add` for new tasks or `tasks new-list` to start a fresh list before using any other tools.",
+          `All tasks are done. You MUST use \`tasks add\` for new tasks or \`tasks new-list\` to start a fresh list before using any other tools.`,
       };
     }
     if (active.length === 0) {
-      return {
-        block: true,
-        reason:
-          "No task is in progress. You MUST use `tasks toggle` to mark a task as inprogress before doing any work.",
-      };
+      // In non-NORMAL modes, enforce hard. In NORMAL, soft-nudge.
+      if (isNonNormal) {
+        return {
+          block: true,
+          reason:
+            `No task is in progress (${currentMode} mode). You MUST use \`tasks toggle\` to mark a task as inprogress before doing any work.`,
+        };
+      }
+      return { block: false };
     }
 
     return { block: false };
