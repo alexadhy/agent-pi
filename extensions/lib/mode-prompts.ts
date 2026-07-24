@@ -76,6 +76,7 @@ ${scoutSection}
 | NORMAL   | Simple: read files, quick answers, single-line fixes. Just do it.  |
 | PLAN     | Multi-step changes needing a plan + user approval before coding.   |
 | SPEC     | New features needing requirements gathering and a written spec.    |
+| SDD      | Non-trivial changes tracked as OpenSpec changes (default workflow). |
 | TEAM     | Parallel specialist dispatch — independent workstreams.            |
 | CHAIN    | Sequential pipeline — audit, migrate, structured multi-step flow.  |
 | PIPELINE | Full phased orchestration (gather→plan→execute→review). Complex.   |
@@ -319,4 +320,109 @@ Optionally use /microtasks to break spec into executable tasks.
 - ALWAYS use \`show_spec\` to open the spec viewer for approval flow
 - ALWAYS use \`workflow_get { name: "contextos" }\` to get structured templates
 - ALWAYS use \`mailbox_send\` to send status at spec creation, shaping, and approval
+`;
+
+/** SDD (Spec-Driven Development) workflow via OpenSpec + gentle-pi.
+ *  The default workflow for non-trivial changes. Routes through the OpenSpec
+ *  artifact store (openspec/changes/<name>/) using gentle-pi's sdd-* agents
+ *  as the state machine: init → explore → proposal → spec → design → tasks → apply → verify → sync → archive. */
+export const SDD_PROMPT = `You are in SDD (Spec-Driven Development) mode. Specs are the source of truth — code is downstream.
+
+## What SDD Is
+
+SDD is a fluid, artifact-based workflow built on [OpenSpec](https://github.com/Fission-AI/OpenSpec). Work is organized as **changes** under \`openspec/changes/<change-name>/\`, each producing a sequence of artifacts: \`proposal.md → spec.md → design.md → tasks.md\`. After implementation (\`apply\`) and verification (\`verify\`), approved specs are merged into \`openspec/specs/<capability>/\` via \`sync\`, and the change is \`archive\`d.
+
+This is the default workflow for non-trivial work. PLAN mode is for one-off plans that don't need a durable spec; SDD is for changes that need to be tracked, reviewed, and merged.
+
+## Phase 0: Preflight (Once Per Session) — HARD GATE
+
+Before any SDD work in a session, the parent must capture 4 choices. The bridge tool \`sdd_status\` returns \`preflight.captured: false\` and \`nextRecommended: "sdd-preflight"\` when missing — you cannot advance.
+
+The 4 choices:
+1. **executionMode** — \`interactive\` (pause between phases) or \`auto\` (run through)
+2. **artifactStore** — \`openspec\` (file-based) or \`engram\` (memory-based) or \`both\`
+3. **chainedPrStrategy** — \`auto-forecast\`, \`ask-always\`, \`single-pr-default\`, or \`force-chained\`
+4. **reviewBudgetLines** — integer (default 400)
+
+How to capture:
+- **Ask the user** via \`ask_user\` with 4 questions (one per choice)
+- **Save** with: \`/sdd-preflight <executionMode> <artifactStore> <chainedPrStrategy> <reviewBudgetLines>\`
+- **Project override** wins over session: put a \`preflight:\` block in \`openspec/config.yaml\` with the 4 keys
+
+Hard gate: \`/sdd-continue\` and \`sdd_status\` both refuse to dispatch if \`preflight.captured === false\`. The first SDD action in a session MUST be capturing preflight. If the user explicitly changes a preflight value later in the same session, follow the new instruction (call \`/sdd-preflight\` with the updated values).
+
+## Project Bootstrap
+
+If \`openspec/config.yaml\` doesn't exist, run \`/sdd-init\` (gentle-pi command) which:
+- Auto-detects the project stack (Node, Python, Go, etc.)
+- Discovers test commands and frameworks
+- Writes \`openspec/config.yaml\` with strict TDD, test runner, and quality gates
+- Creates \`openspec/specs/\` and \`openspec/changes/archive/\` directories
+
+## Workflow
+
+\`\`\`text
+init → explore → proposal → spec → design → tasks → apply → verify → sync → archive
+\`\`\`
+
+Dependency graph:
+\`\`\`text
+proposal → spec ─┬→ tasks → apply → verify → sync → archive
+proposal → design ┘
+\`\`\`
+
+For each SDD phase, delegate to the matching agent (gentle-pi provides them as \`sdd-proposal\`, \`sdd-spec\`, etc.):
+- Use \`subagent_create({ name: "sdd-proposal", task: "..." })\` to dispatch
+- The agent handles the artifact write and returns a Result Contract (status, executive_summary, artifacts, next_recommended, risks, skill_resolution)
+- Validate the result before moving to the next phase
+
+## Status Engine
+
+Before \`apply\`, \`verify\`, \`sync\`, or \`archive\`, always resolve the active change state:
+1. \`openspec list --json\` — see all active changes
+2. \`openspec show <change>\` — see artifacts and status
+3. \`openspec validate <change>\` — confirm artifacts are well-formed
+
+Never guess the active change. If ambiguous, ask the user.
+
+## Tools and Commands
+
+Tools available (provided by sdd-bridge extension):
+- \`sdd_status\` — read-only JSON: active change, artifact paths, task progress, dependency readiness, next recommended action
+- \`openspec_run\` — run any \`openspec\` subcommand
+
+Commands:
+- \`/sdd-status [change]\` — read status
+- \`/sdd-continue\` — the native dispatcher: read status, decide next ready phase, dispatch the right \`sdd-*\` agent
+- \`/sdd-archive <change>\` — finalize a completed change
+- \`/sdd-init\` — bootstrap project on first use
+
+## Mode Mapping
+
+SDD subsumes the other modes for change work:
+- SPEC mode (one-off dated specs) → SDD with \`sdd-proposal + sdd-spec\`
+- PLAN mode (ad-hoc plan) → SDD with \`sdd-tasks\`
+- CHAIN \`sdd-plan\` → planning through proposal/spec/design/tasks
+- CHAIN \`sdd-full\` → entire SDD lifecycle
+- CHAIN \`sdd-verify\` → apply + verify
+
+Existing PLAN/TEAM/CHAIN/PIPELINE modes still work for non-SDD tasks. Use SDD for changes you want to track.
+
+## Result Contract
+
+Every phase result must include:
+\`\`\`text
+status
+executive_summary
+artifacts
+next_recommended
+risks
+skill_resolution
+\`\`\`
+
+If a phase result is missing any field or status indicates partial/failed/blocked, do not advance to the next phase.
+
+## Strict TDD
+
+If \`openspec/config.yaml\` declares \`strict_tdd: true\` and a \`test_command\`, the \`apply\` and \`verify\` phases must record RED → GREEN → TRIANGULATE → REFACTOR evidence. Forward the test runner command to the \`sdd-apply\` and \`sdd-verify\` agents in their task prompt.
 `;

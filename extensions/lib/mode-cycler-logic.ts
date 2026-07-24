@@ -1,7 +1,7 @@
 // ABOUTME: Pure functions for cycling operational modes (NORMAL, PLAN, SPEC, PIPELINE, TEAM, CHAIN).
 // ABOUTME: No side effects — used by mode-cycler.ts extension and tested independently.
 
-export const MODES = ["NORMAL", "PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"] as const;
+export const MODES = ["NORMAL", "PLAN", "SPEC", "SDD", "PIPELINE", "TEAM", "CHAIN"] as const;
 export type Mode = typeof MODES[number];
 
 /** Advance to the next mode in the cycle, wrapping CHAIN → NORMAL. */
@@ -20,6 +20,7 @@ const MODE_COLORS: Record<Mode, string> = {
 	NORMAL: "",
 	PLAN: "accent",
 	SPEC: "accent",
+	SDD: "success",
 	PIPELINE: "accent",
 	TEAM: "accent",
 	CHAIN: "accent",
@@ -37,6 +38,7 @@ const MODE_TEXT_ANSI: Record<Mode, string> = {
 	NORMAL: "",
 	PLAN: BOLD_WHITE,
 	SPEC: BOLD_WHITE,
+	SDD: BOLD_WHITE,
 	PIPELINE: BOLD_WHITE,
 	TEAM: BOLD_WHITE,
 	CHAIN: BOLD_WHITE,
@@ -53,6 +55,7 @@ const ANSI_BG: Record<Mode, string> = {
 	NORMAL: "",
 	PLAN: DODGER_BLUE_BG,
 	SPEC: DODGER_BLUE_BG,
+	SDD: "\x1b[48;2;0;180;120m", // green for SDD
 	PIPELINE: DODGER_BLUE_BG,
 	TEAM: DODGER_BLUE_BG,
 	CHAIN: DODGER_BLUE_BG,

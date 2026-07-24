@@ -20,6 +20,7 @@ import {
 import {
   PLAN_PROMPT,
   SPEC_PROMPT,
+  SDD_PROMPT,
   buildNormalPrompt,
 } from "./lib/mode-prompts.ts";
 import { writeFileSync } from "fs";
@@ -261,6 +262,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (currentMode === "PLAN") return { systemPrompt: PLAN_PROMPT };
     if (currentMode === "SPEC") return { systemPrompt: SPEC_PROMPT };
+    if (currentMode === "SDD") return { systemPrompt: SDD_PROMPT };
     return {};
   });
 
