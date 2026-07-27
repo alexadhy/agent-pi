@@ -53,6 +53,7 @@ interface SddStatus {
   taskProgress: { total: number; done: number } | null;
   preflight: PreflightState;
   nextRecommended: string | null;
+  gentlePiAvailable: boolean;
   message: string;
 }
 
@@ -146,8 +147,18 @@ function determineNextPhase(change: OpenSpecChange): string {
   return "sdd-apply";
 }
 
+function isGentlePiAvailable(): boolean {
+  try {
+    require.resolve("gentle-pi/package.json");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function buildSddStatus(cwd: string): SddStatus {
   const preflight = loadPreflight(cwd);
+  const gentleAvailable = isGentlePiAvailable();
 
   // Preflight gate: if not captured, override nextRecommended
   if (!isCaptured(preflight)) {
@@ -158,6 +169,7 @@ function buildSddStatus(cwd: string): SddStatus {
       taskProgress: null,
       preflight,
       nextRecommended: "sdd-preflight",
+      gentlePiAvailable: gentleAvailable,
       message:
         "Preflight not captured. Run `/sdd-preflight` (or have the parent ask the 4 questions) before any SDD work.",
     };
@@ -171,6 +183,7 @@ function buildSddStatus(cwd: string): SddStatus {
       taskProgress: null,
       preflight,
       nextRecommended: "sdd-init",
+      gentlePiAvailable: gentleAvailable,
       message: "openspec/ directory not found. Run /sdd-init to bootstrap the project.",
     };
   }
@@ -184,6 +197,7 @@ function buildSddStatus(cwd: string): SddStatus {
       taskProgress: null,
       preflight,
       nextRecommended: "sdd-proposal",
+      gentlePiAvailable: gentleAvailable,
       message: "No active changes. Create one with `openspec new <change-name>`.",
     };
   }
@@ -211,6 +225,7 @@ function buildSddStatus(cwd: string): SddStatus {
     taskProgress,
     preflight,
     nextRecommended,
+    gentlePiAvailable: gentleAvailable,
     message: `Active change: ${activeChange.name} | Next phase: ${nextRecommended} | Mode: ${preflight.executionMode}`,
   };
 }

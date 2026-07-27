@@ -110,21 +110,29 @@ Read the task carefully and classify its complexity:
 
 #### How to spawn scouts:
 1. Identify 4 distinct areas to investigate based on the task (examples below)
-2. Use \`subagent_create_batch\` to spawn all 4 at once with \`name: "scout"\`
-3. Wait for all scouts to report back (results arrive as follow-up messages)
-4. Synthesize their findings into the context you need for planning
+2. **Resolve project skills first** — call \`gentle_skills { task: "<task>", targetFiles: ["path/a.ts", "path/b.ts"] }\` to get matching skills from gentle-pi's skill registry. Include the matched skill content in each scout's prompt.
+3. Use \`subagent_create_batch\` to spawn all 4 at once with \`name: "scout"\`
+4. Wait for all scouts to report back (results arrive as follow-up messages)
+5. Synthesize their findings into the context you need for planning
 
 #### Example scout dispatch:
 \`\`\`
+// Step 1: Resolve skills first
+gentle_skills { task: "Add auth middleware to API routes", targetFiles: ["src/server.ts", "src/routes/"] }
+// → Returns matched skills with paths and content
+
+// Step 2: Spawn scouts with skills injected
 subagent_create_batch {
   agents: [
-    { name: "scout", task: "Map the directory structure and identify all files related to [feature area]. Report key entry points and exports.", summary: "Structure scout" },
-    { name: "scout", task: "Find all existing patterns for [relevant pattern] in the codebase. Show examples with file paths and line numbers.", summary: "Pattern scout" },
-    { name: "scout", task: "Trace the data flow for [relevant flow]. Map how data moves from [A] to [B], listing every file involved.", summary: "Data flow scout" },
-    { name: "scout", task: "Check the test infrastructure: find existing tests near [area], identify test patterns, fixtures, and how tests are run.", summary: "Test scout" }
+    { name: "scout", task: "Map the directory structure and identify all files related to [feature area]. Report key entry points and exports.\n\n## Skills to load before work\n[Inject matching skill content from gentle_skills result here]", summary: "Structure scout" },
+    { name: "scout", task: "Find all existing patterns for [relevant pattern] in the codebase. Show examples with file paths and line numbers.\n\n## Skills to load before work\n[Inject matching skill content]", summary: "Pattern scout" },
+    { name: "scout", task: "Trace the data flow for [relevant flow]. Map how data moves from [A] to [B], listing every file involved.\n\n## Skills to load before work\n[Inject matching skill content]", summary: "Data flow scout" },
+    { name: "scout", task: "Check the test infrastructure: find existing tests near [area], identify test patterns, fixtures, and how tests are run.\n\n## Skills to load before work\n[Inject matching skill content]", summary: "Test scout" }
   ]
 }
 \`\`\`
+
+**Skill injection rule:** Read the \`.atl/skill-registry.md\` file to understand project conventions, then load the \`SKILL.md\` files for matched skills. Pass the full skill content to each scout via \`## Skills to load before work\` in their task prompt. Scouts should follow the skill's conventions before making recommendations.
 
 #### Typical scout assignments (pick 4 that fit the task):
 - **Structure scout** — map directory layout, find relevant files, identify entry points
@@ -278,7 +286,20 @@ Reference actual code — no hand-waving.>
 `;
 
 /** Context-os spec-driven workflow: Q&A → spec → Commander → implement. */
-export const SPEC_PROMPT = `You are in SPEC mode. Follow the context-os spec-driven workflow for every feature request.
+export const SPEC_PROMPT = `You are in SPEC mode. For feature specs, prefer gentle-pi SDD (Spec-Driven Development) if available; fall back to the context-os workflow.
+
+## Workflow
+
+### Mode Selection (gentle-pi SDD vs context-os)
+
+**gentle-pi SDD** (recommended when gentle-pi is available):
+- If \`globalThis.__gentlePiAvailable === true\` or \`gentle_status\` returns \`gentlePiAvailable: true\`, use the SDD workflow instead of this context-os workflow.
+- Call \`gentle_skills { task: "<feature description>", targetFiles: [] }\` before writing the spec to load relevant project conventions.
+- Use \`gentle_status\` to confirm gentle-pi version and preflight state.
+- For SDD workflow, delegate to \`/sdd-init\` then \`/sdd-continue\` to run the full OpenSpec artifact lifecycle.
+
+**context-os workflow** (fallback when gentle-pi is not available):
+- Follow the workflow below for writing feature specs as dated spec sets.
 
 ## Workflow
 
