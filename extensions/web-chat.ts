@@ -12,7 +12,7 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { readFileSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import {
@@ -50,6 +50,35 @@ interface WSClient {
 }
 
 // ── LAN IP Detection ─────────────────────────────────────────────────
+
+// ── Model/Provider Info ─────────────────────────────────────────
+
+function getModelInfo(): { provider: string; model: string; context: number } | null {
+  try {
+    const { readFileSync, existsSync } = require("node:fs");
+    const { homedir } = require("node:os");
+    const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+    if (!existsSync(settingsPath)) return null;
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    const provider = settings.defaultProvider || "";
+    const modelName = settings.defaultModel || "";
+    if (!provider || !modelName) return { provider, model: modelName, context: 0 };
+
+    // Look up context from models-store
+    const storePath = join(homedir(), ".pi", "agent", "models-store.json");
+    if (existsSync(storePath)) {
+      const store = JSON.parse(readFileSync(storePath, "utf-8"));
+      const models = store[provider]?.models || [];
+      const found = models.find((m: any) => m.id === modelName);
+      if (found?.contextWindow) {
+        return { provider, model: modelName, context: found.contextWindow };
+      }
+    }
+    return { provider, model: modelName, context: 0 };
+  } catch {
+    return null;
+  }
+}
 
 function getLanIP(): string {
   const nets = networkInterfaces();
@@ -472,6 +501,7 @@ function startChatServer(
     }
 
     // Auto-shutdown timer: close server if no clients for 2 minutes
+    // ponytail: 3h keeps chat alive through sleep/lock; `/chat stop` still works for manual shutdown
     let shutdownTimer: ReturnType<typeof setTimeout> | null = null;
     function resetShutdownTimer() {
       if (shutdownTimer) clearTimeout(shutdownTimer);
@@ -482,7 +512,7 @@ function startChatServer(
           } catch {}
           onShutdown();
         }
-      }, 120_000);
+      }, 10_800_000);
     }
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -666,6 +696,7 @@ function startChatServer(
         busy: bridge.isBusy(),
         historyCount: bridge.getHistory().length,
         relay: true,
+        model: getModelInfo(),
       });
 
       // Send existing history

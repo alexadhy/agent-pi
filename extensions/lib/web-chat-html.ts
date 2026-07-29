@@ -1,8 +1,11 @@
 // ABOUTME: Self-contained HTML template for the web chat interface.
 // ABOUTME: Mobile-first responsive design with WebSocket streaming, PIN auth, dark blue theme, full-width.
 
-export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }): string {
+export function generateWebChatHTML(opts: { port: number; logoDataUri?: string; model?: { provider: string; model: string; context: number } }): string {
 	const logo = opts.logoDataUri || "";
+	const model = opts.model;
+	const modelLabel = model ? `${model.provider}/${model.model}` : "";
+	const ctxLabel = model?.context ? `${(model.context / 1000).toFixed(0)}k` : "";
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -459,6 +462,7 @@ export function generateWebChatHTML(opts: { port: number; logoDataUri?: string }
           <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
         <span class="relay-badge" title="Connected to main Pi session">relay</span>
+            <span class="model-badge" id="model-badge"${modelLabel ? '' : ' style="display:none"'} title="${(modelLabel || 'No model info') + (ctxLabel ? ' | ' + ctxLabel : '')}">${modelLabel ? modelLabel + ' ' + ctxLabel : "connecting..."}</span>
         <div class="status-dot" id="status-dot" title="Connected"></div>
         <button class="header-btn" onclick="resetChat()" title="New conversation">New</button>
         <button class="header-btn header-btn-shutdown" onclick="shutdownChat()" title="Stop server &amp; disconnect">✕</button>
