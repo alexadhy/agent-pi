@@ -32,3 +32,5 @@ commands/private/
 
 # Stakpak session files
 .stakpak/session*
+# Local Pi runtime state
+.atl/

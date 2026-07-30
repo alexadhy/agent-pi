@@ -154,6 +154,50 @@ function startTunnel(
   });
 }
 
+function startManagedTunnel(): Promise<ChildProcess> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("cloudflared", ["tunnel", "run"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        reject(new Error("Managed tunnel failed to start within 20 seconds"));
+      }
+    }, 20000);
+
+    let stderrBuf = "";
+    proc.stderr!.setEncoding("utf-8");
+    proc.stderr!.on("data", (chunk: string) => {
+      stderrBuf += chunk;
+      // cloudflared prints "Registered tunnel connection" when ready
+      if (/registered.*connection/i.test(stderrBuf) && !resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        resolve(proc);
+      }
+    });
+
+    proc.on("error", (err) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        reject(err);
+      }
+    });
+
+    proc.on("close", (code) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        reject(new Error(`cloudflared tunnel run exited with code ${code}`));
+      }
+    });
+  });
+}
+
 // ── PIN Authentication ───────────────────────────────────────────────
 
 function generatePIN(): string {
@@ -475,6 +519,7 @@ function startChatServer(
   bridge: SessionBridge,
   pin: string,
   onShutdown: () => void,
+  preferredPort = 0,
 ): Promise<{ port: number; server: Server }> {
   return new Promise((resolve) => {
     const wsClients = bridge["clients"];
@@ -737,7 +782,7 @@ function startChatServer(
       });
     });
 
-    server.listen(0, "0.0.0.0", () => {
+    server.listen(preferredPort, "0.0.0.0", () => {
       const addr = server.address() as any;
       resolve({ port: addr.port, server });
     });
@@ -820,11 +865,29 @@ export default function (pi: ExtensionAPI) {
     tunnelUrl?: string;
   }
 
+  /** Read chat.tunnelDomain from settings.json */
+  function readChatConfig(): { tunnelDomain?: string } {
+    try {
+      const { homedir } = require("node:os");
+      const { join } = require("node:path");
+      const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+      const raw = require("node:fs").readFileSync(settingsPath, "utf-8");
+      const s = JSON.parse(raw);
+      return {
+        tunnelDomain: s.chat?.tunnelDomain || undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
   async function launchChat(
     ctx: ExtensionContext,
     remote = false,
   ): Promise<LaunchResult> {
     cleanupServer();
+
+    const chatConfig = readChatConfig();
 
     // Create the session bridge with shared WebSocket client map
     const wsClients = new Map<number, WSClient>();
@@ -857,20 +920,46 @@ export default function (pi: ExtensionAPI) {
     let tunnelUrl: string | undefined;
 
     if (remote) {
-      if (!isCloudflaredAvailable()) {
-        throw new Error(
-          "cloudflared is not installed. Install it with: brew install cloudflared",
-        );
-      }
-      const tunnel = await startTunnel(port);
-      activeTunnel = tunnel.proc;
-      activeTunnelUrl = tunnel.url;
-      tunnelUrl = tunnel.url;
+      if (chatConfig.tunnelDomain) {
+        // Update config.yml with Pi's actual port, then start the tunnel
+        try {
+          const { homedir } = require("node:os");
+          const { join } = require("node:path");
+          const { readFileSync, writeFileSync } = require("node:fs");
+          const configPath = join(homedir(), ".cloudflared", "config.yml");
+          const configRaw = readFileSync(configPath, "utf-8");
+          const updated = configRaw.replace(
+            /(service: http:\/\/localhost:)\d+/g,
+            `$1${port}`,
+          );
+          if (updated !== configRaw) {
+            writeFileSync(configPath, updated, "utf-8");
+          }
+        } catch {}
+        const tunnel = await startManagedTunnel();
+        activeTunnel = tunnel;
+        activeTunnelUrl = `https://${chatConfig.tunnelDomain}`;
+        tunnelUrl = activeTunnelUrl;
+        tunnel.on("close", () => {
+          activeTunnel = null;
+          activeTunnelUrl = null;
+        });
+      } else {
+        if (!isCloudflaredAvailable()) {
+          throw new Error(
+            "cloudflared is not installed. Install it with: brew install cloudflared",
+          );
+        }
+        const tunnel = await startTunnel(port);
+        activeTunnel = tunnel.proc;
+        activeTunnelUrl = tunnel.url;
+        tunnelUrl = tunnel.url;
 
-      tunnel.proc.on("close", () => {
-        activeTunnel = null;
-        activeTunnelUrl = null;
-      });
+        tunnel.proc.on("close", () => {
+          activeTunnel = null;
+          activeTunnelUrl = null;
+        });
+      }
     }
 
     activeSession = {
