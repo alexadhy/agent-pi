@@ -22,7 +22,7 @@ import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
-const DEFAULT_ART = `                                                                           ,aa,       ,aa
+const DEFAULT_ART = `                                                                    ,aa,       ,aa
                                                                     d"  "b    ,d",\`b
                                                                   ,dP a  "b,ad8' 8 8
                                                                   d8' 8  ,88888a 8 8
