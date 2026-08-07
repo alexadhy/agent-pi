@@ -22,14 +22,14 @@ import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
-const DEFAULT_ART = `                                                       ,aa,       ,aa
-                                                d"  "b    ,d",\`b
-                                              ,dP a  "b,ad8' 8 8
-                                              d8' 8  ,88888a 8 8
-                                             d8baa8ba888888888a8
-                                          ,ad888888888YYYY888YYY,
-                                       ,a888888888888"   "8P"  "b
-                                   ,aad8888tt,8888888b (0 \`8, 0 8
+const DEFAULT_ART = `                                                                           ,aa,       ,aa
+                                                                    d"  "b    ,d",\`b
+                                                                  ,dP a  "b,ad8' 8 8
+                                                                  d8' 8  ,88888a 8 8
+                                                                 d8baa8ba888888888a8
+                                                              ,ad888888888YYYY888YYY,
+                                                           ,a888888888888"   "8P"  "b
+                                                       ,aad8888tt,8888888b (0 \`8, 0 8
                   ____________________________,,aadd888ttt8888ttt"8"I  "Yb,   \`Ya  8
             ,aad8888b888888aab8888888888b,     ,aatPt888ttt8888tt 8,\`b,   "Ya,. \`"aP
         ,ad88tttt8888888888888888888888ttttt888ttd88888ttt8888tt,t "ba,.  \`"\`d888
