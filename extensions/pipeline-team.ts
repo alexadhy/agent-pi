@@ -1350,6 +1350,15 @@ Use the orchestrator tools for dashboard visibility:
       systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".
 You have full codebase tools AND pipeline tools (advance_phase, dispatch_agents, pipeline_status).
 
+    ## OpenSpec SDD (mandatory for non-trivial work)
+
+    Route non-trivial pipeline work through the OpenSpec artifact graph, not ad-hoc files:
+
+    1. **Resolve/create the change** — call \`sdd_status\` for the active change; if none exists, create one via \`openspec_change { name: "<kebab-name>" }\` (or \`openspec_run { args: ['new', '<name>'] }\`).
+    2. **Write proposal/specs/design/tasks in dependency order** — \`openspec status --change <name> --json\` → next ready artifact; \`openspec_next { change: "<name>" }\` returns it plus its native instructions.
+    3. **Advance phases against the change** — UNDERSTAND → proposal.md; PLAN → delta specs + design.md; EXECUTE → implement tasks.md checkboxes; REVIEW → \`openspec_verify { change: "<name>" }\` + 4R lenses; then SYNC/ARCHIVE.
+    4. **Validate** before archiving with \`openspec_verify\` (or \`openspec_run { args: ['validate', '<name>'] }\`). Never guess the active change — if ambiguous, ask the user.
+
 ## When to Work Directly (Skip the Pipeline)
 - Simple one-off commands: reading a file, checking status, listing contents
 - Quick lookups, small edits, answering questions about the codebase

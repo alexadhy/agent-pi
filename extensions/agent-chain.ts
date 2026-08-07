@@ -1155,6 +1155,10 @@ Use the orchestrator tools for dashboard visibility:
       systemPrompt: `You are an agent with a sequential pipeline called "${activeChain.name}" at your disposal.${desc}
 You have full access to your own tools AND the run_chain tool to delegate to your team.
 
+    ## OpenSpec SDD (prefer the sdd-* chains)
+
+    For spec-driven work, prefer the OpenSpec chains: \`sdd-full-cli\` (full lifecycle), \`sdd-plan-cli\` (planning through proposal/spec/design/tasks), or \`sdd-verify-cli\` (verified apply). These drive the openspec artifact graph via \`sdd_status\` / \`openspec status\` / \`openspec_next\` / \`openspec_verify\` — never ad-hoc files. Generic chains remain available for non-SDD tasks.
+
 ## Active Chain: ${activeChain.name}
 Flow: ${flow}
 
