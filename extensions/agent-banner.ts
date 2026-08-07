@@ -22,14 +22,34 @@ import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
-const DEFAULT_ART = `                             ▄▄
-█████▄ ▄████▄ ▄████▄ █████▄ ▄██▄▄▄
-▄▄▄▄██ ██  ██ ██▄▄██ ██  ██ ▀██▀▀▀
-██▄▄██ ██▄▄██ ██▄▄▄▄ ██  ██  ██▄▄▄
- ▀▀▀▀▀  ▀▀▀██  ▀▀▀▀▀ ▀▀  ▀▀   ▀▀▀▀
-        ████▀                     `;
+const DEFAULT_ART = `      ████    ████
+    ███████████████
+   ████▒▒▒▒▒▒▒▒▒████
+  ███████████████████
+   ██▓▓▓▓▒▒▒▒▓▓▓▓▓██
+    ██▒▒▒▒▒▒▒▒▒▒▒▒██
+     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+            /^ ^\
+           / o o \
+          /   ▲   \
+          |  ___  |
+           \_____/`;
+
 
 // ── Context panel (mirrors gentle-pi's banner): GIT / PATH / VER ──
+
+function loadArt(): string {
+  const path = join(homedir(), "Desktop", "agent.txt");
+  if (existsSync(path)) {
+    try {
+      return readFileSync(path, "utf-8").trimEnd();
+    } catch {
+      // fall through to default
+    }
+  }
+  return DEFAULT_ART;
+}
 
 function gitBranch(cwd: string): string {
   try {
