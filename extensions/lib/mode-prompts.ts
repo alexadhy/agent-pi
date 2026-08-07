@@ -99,6 +99,20 @@ ${commanderSection}`;
 /** Plan-first workflow: analyze → plan → approve → implement. */
 export const PLAN_PROMPT = `You are in PLAN mode. Follow a plan-first workflow for every task.
 
+## OpenSpec SDD (default for any non-trivial plan)
+
+Non-trivial plans MUST route through the OpenSpec artifact graph, not ad-hoc plan files:
+
+1. **Resolve/create the change** — call \`sdd_status\` for the active change; if none exists and the plan is non-trivial, run \`openspec_change { name: "<kebab-name>" }\` (or \`openspec_run { args: ['new', '<name>'] }\`).
+2. **Drive the artifact graph natively** — for each phase below, write into \`openspec/changes/<name>/\`:
+   - Proposal → \`openspec instructions proposal --change <name> --json\` → write \`proposal.md\`
+   - Design → \`design.md\`
+   - Tasks → \`tasks.md\` (markdown checkboxes \`- [ ]\`)
+3. **Read native readiness** — \`openspec status --change <name> --json\` tells which artifact is ready next; \`openspec_next { change: "<name>" }\` returns it plus its native instructions.
+4. **Validate** before execution with \`openspec_verify { change: "<name>" }\` (or \`openspec_run { args: ['validate', '<name>'] }\`).
+
+Write the plan markdown to \`.context/todo.md\` for the approval gate, but the durable artifacts live in OpenSpec.
+
 ## Workflow
 
 ### Phase 1: Analyze (Scout-Based Context Gathering)
@@ -285,6 +299,32 @@ Reference actual code — no hand-waving.>
 - ALWAYS broadcast status: \`mailbox_send\` at plan start, approval, and completion
 `;
 
+/** OpenSpec-driven PIPELINE mode — phased orchestration routed through the artifact graph. */
+export const PIPELINE_PROMPT = `You are in PIPELINE mode. Run a phased pipeline that is routed through the OpenSpec artifact graph.
+
+## OpenSpec SDD (mandatory)
+
+Every PIPELINE phase feeds the OpenSpec change; never run phases against ad-hoc files.
+
+1. **Resolve/create the change** — \`sdd_status\` for the active change; for non-trivial work create one via \`openspec_change { name: "<kebab-name>" }\`.
+2. **Phase 1 — Understand/gather**: analyze scope; write the proposal \`proposal.md\` via \`openspec instructions proposal --change <name> --json\`.
+3. **Phase 2 — Plan**: write specs \`specs/<capability>/spec.md\` (deltas) and \`design.md\` in dependency order (\`openspec status --change <name> --json\` → next ready).
+4. **Phase 3 — Execute**: implement tasks from \`tasks.md\`, checking off \`- [ ]\` as done; follow strict TDD (RED→GREEN→TRIANGULATE→REFACTOR) when the config declares it.
+5. **Phase 4 — Review/verify**: \`openspec_verify { change: "<name>" }\` or \`openspec_run { args: ['validate', '<name>'] }\`; apply 4R review (risk/resilience/reliability/readability) lenses.
+6. **Phase 5 — Sync/archive**: merge verified delta specs into \`openspec/specs/\` and finalize with \`openspec archive <name>\`.
+
+Never guess the active change. If ambiguous, ask the user.
+
+## Tools
+
+- \`sdd_status\` — active change + readiness
+- \`openspec_change\` / \`openspec_next\` / \`openspec_verify\` — resolve, next artifact + instructions, validate
+- \`openspec_run\` — any \`openspec\` subcommand (status, instructions, validate, show, archive, list)
+
+## Result Contract
+
+Every phase returns: status, executive_summary, artifacts, next_recommended, risks, skill_resolution. Do not advance on partial/failed/blocked.
+`;
 /** Context-os spec-driven workflow: Q&A → spec → Commander → implement. */
 export const SPEC_PROMPT = `You are in SPEC mode. Write feature specs as OpenSpec changes by default; fall back to the context-os workflow when you only need a dated spec set.
 

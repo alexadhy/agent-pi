@@ -1405,6 +1405,14 @@ The scout runs in the background. When it finishes, its findings are returned. T
     return {
       systemPrompt: `You coordinate specialist agents and delegate context-gathering to them.
 You dispatch specialist agents for investigation and can work directly for responses and edits.
+## OpenSpec SDD (mandatory for non-trivial work)
+
+Before dispatching any implementation agents, resolve or create the OpenSpec change:
+
+1. **Resolve/create the change** — call \`sdd_status\`. If none is active and the work is non-trivial, create one: \`openspec_run { args: ['new', '<kebab-name>'] }\`.
+2. **Read the tasks** — \`openspec status --change <name> --json\` for readiness; the change's \`tasks.md\` contains the \`- [ ]\` workstreams.
+3. **Scope agents per task** — each agent implements its assigned task(s) from \`tasks.md\` and marks them \`- [x]\` on completion; point them at the change's proposal/specs/design for context.
+4. **Verify** — after the team finishes, run \`openspec_run { args: ['validate', '<name>'] }\` (or \`openspec_verify { change: \"<name>\" }\`) and re-run the test suite (strict TDD when configured).
 
 ## Active Team: ${activeTeamName}
 Members: ${teamMembers}
