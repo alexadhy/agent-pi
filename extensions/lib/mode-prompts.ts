@@ -345,10 +345,11 @@ Optionally use /microtasks to break spec into executable tasks.
 - ALWAYS use \`mailbox_send\` to send status at spec creation, shaping, and approval
 `;
 
-/** SDD (Spec-Driven Development) workflow via OpenSpec + gentle-pi.
+/** SDD (Spec-Driven Development) workflow via the native OpenSpec engine.
  *  The default workflow for non-trivial changes. Routes through the OpenSpec
- *  artifact store (openspec/changes/<name>/) using gentle-pi's sdd-* agents
- *  as the state machine: init → explore → proposal → spec → design → tasks → apply → verify → sync → archive. */
+ *  artifact store (openspec/changes/<name>/) using the openspec CLI's status/
+ *  instructions/validate as the state machine: proposal → spec → design → tasks
+ *  → apply → verify → sync → archive. */
 export const SDD_PROMPT = `You are in SDD (Spec-Driven Development) mode. Specs are the source of truth — code is downstream.
 
 ## What SDD Is
