@@ -203,3 +203,17 @@ sdd-verify-cli:
       prompt: "Apply the OpenSpec change tasks (see sdd-full-cli apply step): resolve via `sdd_status`, implement each task, mark done, run the test suite per strict TDD.\n\n$INPUT"
     - agent: reviewer
       prompt: "Verify against the OpenSpec spec. Run `openspec_run { args: ['validate', '<name>'] }`, run tests, and apply risk/resilience/reliability/readability review lenses. Report pass/fail with evidence.\n\n$INPUT"
+
+judgment-day:
+  description: "Dual-blind adversarial review (judges A+B) → consolidated findings → surgical fix → re-verify"
+  steps:
+    - agent: jd-judge-a
+      prompt: "Blind adversarial review A of the OpenSpec change. Scope: the active change via `sdd_status`; read its proposal/specs/design/tasks and the implemented diff. Use the review ledger schema. Report verdict + confirmed findings.\n\n$INPUT"
+    - agent: jd-judge-b
+      prompt: "Independent blind adversarial review B of the SAME change. Do not coordinate with judge A. Penalize edge cases, test gaps, integration risks, user-visible regressions. Use the review ledger schema.\n\nOriginal request: $ORIGINAL\n\nJudge A already reviewed; work independently.\n\n$INPUT"
+    - agent: reviewer
+      prompt: "Consolidate judge A and judge B findings into a single confirmed/rejected findings ledger. Keep only findings both or either support with concrete user impact; merge duplicates; assign each a `confirm` or `reject` verdict.\n\nJudge A:\n$INPUT_1\n\nJudge B:\n$INPUT_2"
+    - agent: jd-fix-agent
+      prompt: "Apply surgical fixes for confirmed findings only. Preserve design intent, add focused tests, and verify under strict TDD when the config enables it.\n\nConsolidated ledger:\n$INPUT\n\nChange context: active OpenSpec change via `sdd_status`."
+    - agent: reviewer
+      prompt: "Verify the OpenSpec change after fixes: run `openspec_run { args: ['validate', '<name>'] }` and rerun the test suite. Confirm all confirmed findings resolved and no regressions introduced.\n\nFix report: $INPUT"
