@@ -217,3 +217,15 @@ judgment-day:
       prompt: "Apply surgical fixes for confirmed findings only. Preserve design intent, add focused tests, and verify under strict TDD when the config enables it.\n\nConsolidated ledger:\n$INPUT\n\nChange context: active OpenSpec change via `sdd_status`."
     - agent: reviewer
       prompt: "Verify the OpenSpec change after fixes: run `openspec_run { args: ['validate', '<name>'] }` and rerun the test suite. Confirm all confirmed findings resolved and no regressions introduced.\n\nFix report: $INPUT"
+
+4r-review:
+  description: "Lens-only full 4R discovery in stable risk, resilience, readability, reliability order; parent owns merge and orchestration"
+  steps:
+    - agent: review-risk
+      prompt: "Run R1 Risk review on the current diff of the active OpenSpec change. Resolve the change via `sdd_status`; compute the diff scope. Return the complete findings ledger (R1-* rows) for security, privilege boundaries, data exposure, dependencies, and merge-blocking vulnerabilities. If clean, return an empty ledger record rather than omit the report.\n\n$INPUT"
+    - agent: review-resilience
+      prompt: "Run R4 Resilience review on the current diff of the active OpenSpec change. Resolve the change via `sdd_status`; compute the diff scope. Return the complete findings ledger (R4-* rows) for fallbacks, retry/backoff, graceful degradation, observability, load, rollback, and SLO risks. If clean, return an empty ledger record rather than omit the report.\n\n$INPUT"
+    - agent: review-readability
+      prompt: "Run R2 Readability review on the current diff of the active OpenSpec change. Resolve the change via `sdd_status`; compute the diff scope. Return the complete findings ledger (R2-* rows) for naming, complexity, intention, maintainability, review size, and context clarity. If clean, return an empty ledger record rather than omit the report.\n\n$INPUT"
+    - agent: review-reliability
+      prompt: "Run R3 Reliability review on the current diff of the active OpenSpec change. Resolve the change via `sdd_status`; compute the diff scope. Return the complete findings ledger (R3-* rows) for behavior-first test coverage, edge cases, determinism, contracts, and regressions. If clean, return an empty ledger record rather than omit the report.\n\n$INPUT"
