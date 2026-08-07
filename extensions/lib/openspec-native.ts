@@ -46,6 +46,11 @@ export interface NativeInstructions {
 	outputPath?: string;
 	resolvedOutputPath?: string;
 	existingOutputPaths?: string[];
+	// `openspec instructions apply` (special case) returns these apply-phase fields:
+	contextFiles?: Record<string, string[]>;
+	progress?: { total?: number; complete?: number; remaining?: number };
+	tasks?: Array<{ id?: string; text?: string; done?: boolean }>;
+	state?: "blocked" | "all_done" | "ready" | "in-progress";
 }
 
 // ── Detection / parsing ──────────────────────────────────────────────────────

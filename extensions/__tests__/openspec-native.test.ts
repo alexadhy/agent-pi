@@ -8,6 +8,7 @@ import {
 	nextArtifactId,
 	pickActiveChange,
 	type NativeStatus,
+	type NativeInstructions,
 } from "../lib/openspec-native.ts";
 
 // ── Fixtures: v1.6.0 spec-driven shapes (captured from real openspec output) ──
@@ -139,6 +140,26 @@ describe("nextArtifactId", () => {
 		expect(nextArtifactId({ ...FRESH_CHANGE, artifacts: [] })).toBeNull();
 	});
 });
+
+	it("parseNativeInstructionsApply fields (contextFiles/progress/tasks/state)", () => {
+		const inst: NativeInstructions = {
+			changeName: "native-probe",
+			artifactId: "apply",
+			contextFiles: { tasks: ["/proj/openspec/changes/native-probe/tasks.md"] },
+			progress: { total: 4, complete: 1, remaining: 3 },
+			tasks: [
+				{ id: "1", text: "Do thing", done: true },
+				{ id: "2", text: "Do other", done: false },
+			],
+			state: "in-progress",
+		};
+		expect(inst.contextFiles?.tasks).toEqual(["/proj/openspec/changes/native-probe/tasks.md"]);
+		expect(inst.progress?.total).toBe(4);
+		expect(inst.progress?.remaining).toBe(3);
+		expect(inst.tasks?.length).toBe(2);
+		expect(inst.tasks?.[1].done).toBe(false);
+		expect(inst.state).toBe("in-progress");
+	});
 
 describe("pickActiveChange", () => {
 	it("returns the named change when it exists", () => {

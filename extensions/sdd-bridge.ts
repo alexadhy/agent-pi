@@ -448,8 +448,10 @@ pi.registerTool({
   name: "openspec_next",
   label: "OpenSpec Next Artifact",
   description: [
-    "Return the next ready artifact for a change plus its native instructions",
-    "(template, instruction, dependencies) so the agent can write it directly.",
+    "Return the next ready artifact for a change plus its native instructions so the agent",
+    "can write it directly. For artifact phases (proposal|specs|design|tasks) returns the",
+    "template/instruction/dependencies. When the next phase is apply, returns the native",
+    "apply instructions: contextFiles, progress, tasks (implementable), and state.",
   ].join("\n"),
   parameters: Type.Object({
     change: Type.String({ description: "Change name." }),
@@ -460,8 +462,16 @@ pi.registerTool({
     const nativeStatus = parseNativeStatus(openspecJson<NativeStatus>(ctx.cwd, ["status", "--change", change]));
     const artifactId = artifact || nextArtifactId(nativeStatus) || "proposal";
     const inst = fetchInstructions(ctx.cwd, artifactId, change);
-    const result = { change, artifactId, phase: nativePhaseToLabel(artifactId), nativeStatus, instructions: inst };
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { status: "done", change, artifactId } };
+    const phase = nativePhaseToLabel(artifactId);
+    const result = {
+      change,
+      artifactId,
+      phase,
+      isApplyPhase: artifactId === "apply",
+      nativeStatus,
+      instructions: inst,
+    };
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { status: "done", change, artifactId, isApplyPhase: artifactId === "apply" } };
   },
 });
 
