@@ -73,7 +73,14 @@ export default function (pi: ExtensionAPI) {
   // Expose refresh function so other extensions (e.g. agent-team) can re-pin
   // the mode-block as the last aboveEditor widget (closest to the editor input).
   function refreshModeBlock(ctx: ExtensionContext) {
-    updateWidgets(currentMode, ctx);
+    // A captured ctx can go stale after session replacement / reload. The mode
+    // block is cosmetic; if the ctx is stale, skip (the fresh session re-renders
+    // it via its own session_start/session_switch).
+    try {
+      updateWidgets(currentMode, ctx);
+    } catch {
+      // stale ctx — ignore; next session_start re-pins the mode block
+    }
   }
 
   function setMode(mode: Mode, ctx: ExtensionContext) {
