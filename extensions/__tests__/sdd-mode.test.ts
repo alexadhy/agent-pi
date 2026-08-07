@@ -51,15 +51,17 @@ describe("SDD_PROMPT content", () => {
 
 	it("covers the full lifecycle", () => {
 		expect(SDD_PROMPT).toContain("init");
-		expect(SDD_PROMPT).toContain("explore");
+		expect(SDD_PROMPT).toContain("proposal");
 		expect(SDD_PROMPT).toContain("apply");
 		expect(SDD_PROMPT).toContain("verify");
 		expect(SDD_PROMPT).toContain("sync");
 		expect(SDD_PROMPT).toContain("archive");
 	});
 
-	it("requires preflight before any SDD work", () => {
-		expect(SDD_PROMPT).toMatch(/preflight/i);
+	it("has no preflight hard gate (native engine is the state authority)", () => {
+		expect(SDD_PROMPT).not.toMatch(/preflight/i);
+		expect(SDD_PROMPT).not.toContain("__gentlePiAvailable");
+		expect(SDD_PROMPT).not.toContain("gentle_status");
 	});
 
 	it("explains the Result Contract", () => {

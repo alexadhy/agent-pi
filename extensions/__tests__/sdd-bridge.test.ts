@@ -1,5 +1,6 @@
 // ABOUTME: Tests for the SDD bridge extension (sdd-bridge.ts).
-// ABOUTME: Verifies sdd_status JSON shape, openspec_run exit code handling, and command routing.
+// ABOUTME: Verifies native-first buildSddStatus (openspec status JSON when CLI resolves it;
+// ABOUTME: deterministic fallback when the CLI is unavailable) and parseTaskProgress.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
@@ -8,11 +9,9 @@ import { tmpdir, homedir } from "node:os";
 
 import {
 	buildSddStatus,
-	determineNextPhase,
 	parseTaskProgress,
-	type OpenSpecChange,
+	nativePhaseToLabel,
 } from "../sdd-bridge.ts";
-import { savePreflight } from "../lib/sdd-preflight.ts";
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -36,18 +35,6 @@ afterEach(() => {
 function setupProject() {
 	mkdirSync(join(tmpDir, "openspec", "specs"), { recursive: true });
 	mkdirSync(join(tmpDir, "openspec", "changes", "archive"), { recursive: true });
-}
-
-function setupPreflight() {
-	// Default-preflight-captured state for tests that don't care about preflight
-	savePreflight({
-		executionMode: "interactive",
-		artifactStore: "openspec",
-		chainedPrStrategy: "auto-forecast",
-		reviewBudgetLines: 400,
-		captured: true,
-		source: "session",
-	});
 }
 
 function makeChange(name: string, opts: {
@@ -74,11 +61,10 @@ function makeChange(name: string, opts: {
 	}
 }
 
-// ── buildSddStatus ─────────────────────────────────────────────────────────
+// ── buildSddStatus (native-first) ──────────────────────────────────────────
 
 describe("buildSddStatus", () => {
 	it("returns sdd-init when openspec/ doesn't exist", () => {
-		setupPreflight();
 		const status = buildSddStatus(tmpDir);
 		expect(status.nextRecommended).toBe("sdd-init");
 		expect(status.activeChange).toBeNull();
@@ -86,7 +72,6 @@ describe("buildSddStatus", () => {
 	});
 
 	it("returns sdd-proposal when no changes exist", () => {
-		setupPreflight();
 		setupProject();
 		const status = buildSddStatus(tmpDir);
 		expect(status.nextRecommended).toBe("sdd-proposal");
@@ -94,20 +79,20 @@ describe("buildSddStatus", () => {
 		expect(status.changes).toEqual([]);
 	});
 
-	it("returns the first incomplete change as active", () => {
-		setupPreflight();
+	it("returns the first incomplete change as active (fallback when CLI unavailable)", () => {
 		setupProject();
 		makeChange("feature-a", { proposal: true });
 		makeChange("feature-b", { proposal: true, spec: true });
 
 		const status = buildSddStatus(tmpDir);
 		expect(status.activeChange).toBe("feature-a");
-		expect(status.nextRecommended).toBe("sdd-spec");
 		expect(status.changes).toHaveLength(2);
+		// Without a resolved native status, derivation is conservative: apply is the
+		// terminal fallback. Native readiness drives the real phase via nextArtifactId.
+		expect(status.nextRecommended).toBe("sdd-apply");
 	});
 
 	it("returns sdd-apply when all artifacts are present", () => {
-		setupPreflight();
 		setupProject();
 		makeChange("full-change", {
 			proposal: true,
@@ -118,12 +103,10 @@ describe("buildSddStatus", () => {
 
 		const status = buildSddStatus(tmpDir);
 		expect(status.activeChange).toBe("full-change");
-		expect(status.nextRecommended).toBe("sdd-apply");
 		expect(status.taskProgress).toEqual({ total: 2, done: 0 });
 	});
 
-	it("exposes artifact paths", () => {
-		setupPreflight();
+	it("exposes artifact paths for the active change", () => {
 		setupProject();
 		makeChange("with-proposal", { proposal: true });
 
@@ -137,7 +120,6 @@ describe("buildSddStatus", () => {
 	});
 
 	it("ignores the archive directory when listing changes", () => {
-		setupPreflight();
 		setupProject();
 		makeChange("active", { proposal: true });
 		mkdirSync(join(tmpDir, "openspec", "changes", "archive", "old-thing"), {
@@ -148,55 +130,32 @@ describe("buildSddStatus", () => {
 		expect(status.changes).toHaveLength(1);
 		expect(status.changes[0].name).toBe("active");
 	});
+
+	it("no longer gates on preflight — preflight state never blocks status", () => {
+		// Whether or not a preflight file exists, nextRecommended must never be the
+		// preflight gate; the native status engine is authoritative.
+		setupProject();
+		makeChange("c", { proposal: true });
+		const status = buildSddStatus(tmpDir);
+		expect(status.nextRecommended).not.toBe("sdd-preflight");
+		expect(status.activeChange).toBe("c");
+		expect(status.message).not.toMatch(/preflight not captured/i);
+	});
 });
 
-// ── determineNextPhase ─────────────────────────────────────────────────────
+// ── nativePhaseToLabel ─────────────────────────────────────────────────────
 
-describe("determineNextPhase", () => {
-	const baseChange: OpenSpecChange = {
-		name: "x",
-		path: "/tmp/x",
-		hasProposal: false,
-		hasSpec: false,
-		hasDesign: false,
-		hasTasks: false,
-	};
-
-	it("routes to sdd-proposal when no artifacts", () => {
-		expect(determineNextPhase({ ...baseChange })).toBe("sdd-proposal");
+describe("nativePhaseToLabel", () => {
+	it("maps artifact phases to sdd-* labels", () => {
+		expect(nativePhaseToLabel("proposal")).toBe("sdd-proposal");
+		expect(nativePhaseToLabel("specs")).toBe("sdd-spec");
+		expect(nativePhaseToLabel("design")).toBe("sdd-design");
+		expect(nativePhaseToLabel("tasks")).toBe("sdd-tasks");
 	});
 
-	it("routes to sdd-spec when proposal exists", () => {
-		expect(determineNextPhase({ ...baseChange, hasProposal: true })).toBe("sdd-spec");
-	});
-
-	it("routes to sdd-design when proposal + spec exist", () => {
-		expect(
-			determineNextPhase({ ...baseChange, hasProposal: true, hasSpec: true }),
-		).toBe("sdd-design");
-	});
-
-	it("routes to sdd-tasks when proposal + spec + design exist", () => {
-		expect(
-			determineNextPhase({
-				...baseChange,
-				hasProposal: true,
-				hasSpec: true,
-				hasDesign: true,
-			}),
-		).toBe("sdd-tasks");
-	});
-
-	it("routes to sdd-apply when all artifacts exist", () => {
-		expect(
-			determineNextPhase({
-				...baseChange,
-				hasProposal: true,
-				hasSpec: true,
-				hasDesign: true,
-				hasTasks: true,
-			}),
-		).toBe("sdd-apply");
+	it("maps terminal phases without 'sdd-' prefix", () => {
+		expect(nativePhaseToLabel("apply")).toBe("sdd-apply");
+		expect(nativePhaseToLabel("archive")).toBe("sdd-archive");
 	});
 });
 
@@ -226,71 +185,5 @@ describe("parseTaskProgress", () => {
 		const tasksFile = join(tmpDir, "tasks.md");
 		writeFileSync(tasksFile, "# Tasks\n\nJust prose, no checkboxes.\n");
 		expect(parseTaskProgress(tasksFile)).toEqual({ total: 0, done: 0 });
-	});
-});
-
-// ── buildSddStatus with preflight gate ────────────────────────────
-
-describe("buildSddStatus with preflight gate", () => {
-	it("returns nextRecommended='sdd-preflight' when preflight not captured", () => {
-		// No savePreflight call — fresh tmpDir, no session file
-		const status = buildSddStatus(tmpDir);
-		expect(status.preflight.captured).toBe(false);
-		expect(status.nextRecommended).toBe("sdd-preflight");
-		expect(status.message).toMatch(/preflight not captured/i);
-	});
-
-	it("preflight takes precedence over openspec/ missing", () => {
-		// Even with no openspec/ dir, preflight gate fires first
-		const status = buildSddStatus(tmpDir);
-		expect(status.nextRecommended).toBe("sdd-preflight");
-	});
-
-	it("returns preflight in status once captured", () => {
-		savePreflight({
-			executionMode: "auto",
-			artifactStore: "openspec",
-			chainedPrStrategy: "auto-forecast",
-			reviewBudgetLines: 400,
-			captured: true,
-			source: "session",
-		});
-
-		const status = buildSddStatus(tmpDir);
-		expect(status.preflight.captured).toBe(true);
-		expect(status.preflight.executionMode).toBe("auto");
-	});
-
-	it("nextRecommended is normal SDD phase after preflight + openspec/ exist", () => {
-		savePreflight({
-			executionMode: "interactive",
-			artifactStore: "openspec",
-			chainedPrStrategy: "auto-forecast",
-			reviewBudgetLines: 400,
-			captured: true,
-			source: "session",
-		});
-		setupProject();
-		makeChange("with-proposal", { proposal: true });
-
-		const status = buildSddStatus(tmpDir);
-		expect(status.preflight.captured).toBe(true);
-		expect(status.nextRecommended).toBe("sdd-spec");
-		expect(status.activeChange).toBe("with-proposal");
-	});
-
-	it("nextRecommended='sdd-init' when preflight captured but openspec/ missing", () => {
-		savePreflight({
-			executionMode: "interactive",
-			artifactStore: "openspec",
-			chainedPrStrategy: "auto-forecast",
-			reviewBudgetLines: 400,
-			captured: true,
-			source: "session",
-		});
-
-		const status = buildSddStatus(tmpDir);
-		expect(status.preflight.captured).toBe(true);
-		expect(status.nextRecommended).toBe("sdd-init");
 	});
 });

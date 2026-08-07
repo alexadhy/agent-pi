@@ -34,6 +34,13 @@ import {
 	CHAINED_PR_STRATEGIES,
 	type PreflightState,
 } from "./lib/sdd-preflight.ts";
+import {
+	openspecJson,
+	nextArtifactId,
+	parseNativeStatus,
+	fetchInstructions,
+	type NativeStatus,
+} from "./lib/openspec-native.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -55,6 +62,8 @@ interface SddStatus {
   nextRecommended: string | null;
   gentlePiAvailable: boolean;
   message: string;
+  // Native openspec status when the CLI could resolve it (state authority).
+  native?: NativeStatus | null;
 }
 
 // ── OpenSpec Wrapper ─────────────────────────────
@@ -139,12 +148,12 @@ function parseTaskProgress(tasksPath: string): { total: number; done: number } |
   return { total, done };
 }
 
-function determineNextPhase(change: OpenSpecChange): string {
-  if (!change.hasProposal) return "sdd-proposal";
-  if (!change.hasSpec) return "sdd-spec";
-  if (!change.hasDesign) return "sdd-design";
-  if (!change.hasTasks) return "sdd-tasks";
-  return "sdd-apply";
+function nativePhaseToLabel(phase: string): string {
+  if (phase === "archive") return "sdd-archive";
+  if (phase === "apply") return "sdd-apply";
+  // proposal | specs | design | tasks → sdd-proposal | sdd-spec | sdd-design | sdd-tasks
+  const singular = phase === "specs" ? "spec" : phase;
+  return `sdd-${singular}`;
 }
 
 function isGentlePiAvailable(): boolean {
@@ -159,80 +168,79 @@ function isGentlePiAvailable(): boolean {
 function buildSddStatus(cwd: string): SddStatus {
   const preflight = loadPreflight(cwd);
   const gentleAvailable = isGentlePiAvailable();
+  const base = { preflight, gentlePiAvailable: gentleAvailable };
 
-  // Preflight gate: if not captured, override nextRecommended
-  if (!isCaptured(preflight)) {
-    return {
-      activeChange: null,
-      changes: [],
-      artifactPaths: null,
-      taskProgress: null,
-      preflight,
-      nextRecommended: "sdd-preflight",
-      gentlePiAvailable: gentleAvailable,
-      message:
-        "Preflight not captured. Run `/sdd-preflight` (or have the parent ask the 4 questions) before any SDD work.",
-    };
-  }
-
+  // 1. No openspec/ root → bootstrap needed.
   if (!existsSync(join(cwd, "openspec"))) {
     return {
+      ...base,
       activeChange: null,
       changes: [],
       artifactPaths: null,
       taskProgress: null,
-      preflight,
       nextRecommended: "sdd-init",
-      gentlePiAvailable: gentleAvailable,
-      message: "openspec/ directory not found. Run /sdd-init to bootstrap the project.",
+      message: "openspec/ directory not found. Run openspec init (or /sdd-init) to bootstrap.",
     };
   }
 
+  // 2. Native engine: resolve the active change and its readiness graph.
   const changes = listChanges(cwd);
-  if (changes.length === 0) {
+  const native = openspecJson<NativeStatus>(cwd, ["status"]);
+  const nativeStatus = parseNativeStatus(native);
+  const activeName = (() => {
+    const inNative = nativeStatus ? nativeStatus.changeName : null;
+    if (inNative) return inNative;
+    // Native unavailable → fall back to the first incomplete change, then the last.
+    const incomplete = changes.find(
+      (c) => !(c.hasProposal && c.hasSpec && c.hasDesign && c.hasTasks),
+    );
+    if (incomplete) return incomplete.name;
+    return changes.length > 0 ? changes[changes.length - 1].name : null;
+  })();
+
+  // 3. No active change → prompt to create one.
+  if (!activeName && changes.length === 0) {
     return {
+      ...base,
       activeChange: null,
-      changes: [],
+      changes,
       artifactPaths: null,
       taskProgress: null,
-      preflight,
       nextRecommended: "sdd-proposal",
-      gentlePiAvailable: gentleAvailable,
       message: "No active changes. Create one with `openspec new <change-name>`.",
     };
   }
 
-  // First change with incomplete artifacts is the active one
-  // (simple heuristic; the real SDD engine has more sophisticated state)
-  const activeChange =
-    changes.find((c) => !(c.hasProposal && c.hasSpec && c.hasDesign && c.hasTasks)) ||
-    changes[changes.length - 1];
+  // 4. Derive next phase from native readiness when available.
+  const nextNative = nextArtifactId(nativeStatus);
+  const nextRecommended = nextNative ? nativePhaseToLabel(nextNative) : "sdd-apply";
 
+  const changeDir = join(cwd, "openspec", "changes", activeName ?? "");
   const artifactPaths = {
-    proposal: join(activeChange.path, "proposal.md"),
-    spec: join(activeChange.path, "spec.md"),
-    design: join(activeChange.path, "design.md"),
-    tasks: join(activeChange.path, "tasks.md"),
+    proposal: join(changeDir, "proposal.md"),
+    spec: join(changeDir, "spec.md"),
+    design: join(changeDir, "design.md"),
+    tasks: join(changeDir, "tasks.md"),
   };
-
   const taskProgress = parseTaskProgress(artifactPaths.tasks);
-  const nextRecommended = determineNextPhase(activeChange);
 
   return {
-    activeChange: activeChange.name,
+    ...base,
+    activeChange: activeName,
     changes,
     artifactPaths,
     taskProgress,
-    preflight,
     nextRecommended,
-    gentlePiAvailable: gentleAvailable,
-    message: `Active change: ${activeChange.name} | Next phase: ${nextRecommended} | Mode: ${preflight.executionMode}`,
+    native: nativeStatus,
+    message: activeName
+      ? `Active change: ${activeName} | Next phase: ${nextRecommended} | Mode: ${preflight.executionMode}`
+      : "No active change. Create one with `openspec new <change-name>`.",
   };
 }
 
 // ── Exports (for tests) ─────────────────────────────
 
-export { buildSddStatus, determineNextPhase, parseTaskProgress };
+export { buildSddStatus, parseTaskProgress, nativePhaseToLabel };
 export type { SddStatus, OpenSpecChange };
 
 // ── Extension ────────────────────────────────────
@@ -262,20 +270,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Try OpenSpec CLI first
-      let status: SddStatus | null = null;
-      if (openspecAvailable()) {
-        const json = runOpenspecJson<unknown>(ctx.cwd, ["status"]);
-        if (json && typeof json === "object" && "activeChange" in (json as any)) {
-          status = json as SddStatus;
-        }
-      }
+        let status: SddStatus = buildSddStatus(ctx.cwd);
 
-      // Fallback: file-based status
-      if (!status) {
-        status = buildSddStatus(ctx.cwd);
-      }
-
-      const output = JSON.stringify(status, null, 2);
+const output = JSON.stringify(status, null, 2);
 
       return {
         content: [{ type: "text" as const, text: output }],
@@ -512,54 +509,56 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /sdd-continue command (native dispatcher) ─
+        // ── /sdd-continue command (native dispatcher) ─
 
-  pi.registerCommand("sdd-continue", {
-    description:
-      "Native SDD dispatcher. Reads status, decides next ready phase, prints the subagent dispatch prompt.",
-    handler: async (_args, ctx) => {
-      const status = buildSddStatus(ctx.cwd);
+      pi.registerCommand("sdd-continue", {
+        description:
+          "Native SDD dispatcher. Reads native openspec status, decides next ready phase, prints the dispatch prompt.",
+        handler: async (_args, ctx) => {
+          const status = buildSddStatus(ctx.cwd);
 
-      // Preflight gate — refuse to dispatch
-      if (status.nextRecommended === "sdd-preflight") {
-        ctx.ui.notify(
-          "SDD preflight not captured. Ask the user the 4 questions, or run /sdd-preflight manually.",
-          "warning",
-        );
-        return [
-          status.message,
-          "",
-          "Required choices:",
-          `  1. executionMode: ${EXECUTION_MODES.join(" | ")}`,
-          `  2. artifactStore: ${ARTIFACT_STORES.join(" | ")}`,
-          `  3. chainedPrStrategy: ${CHAINED_PR_STRATEGIES.join(" | ")}`,
-          "  4. reviewBudgetLines: integer (default 400)",
-          "",
-          "Suggested: /sdd-preflight interactive openspec auto-forecast 400",
-        ].join("\n");
-      }
+          if (status.nextRecommended === "sdd-init") {
+            return `SDD not initialized. Run openspec init (or /sdd-init) to bootstrap, or:` + NL + `  openspec init` + NL + NL + status.message;
+          }
 
-      if (status.nextRecommended === "sdd-init") {
-        return `SDD not initialized. Run /sdd-init to bootstrap, or:\n  openspec init\n\n${status.message}`;
-      }
+          if (!status.activeChange) {
+            return status.message + NL + NL + `Suggested command:` + NL + `  openspec new <change-name>`;
+          }
 
-      if (!status.activeChange) {
-        return `${status.message}\n\nSuggested command:\n  openspec new <change-name>`;
-      }
+          const next = status.nextRecommended;
+          const artifactId = next.replace("sdd-", "");
 
-      const next = status.nextRecommended;
-      return [
-        `Active change: ${status.activeChange}`,
-        `Next phase: ${next}`,
-        `Artifact paths:`,
-        ...Object.entries(status.artifactPaths || {}).map(([k, v]) => `  - ${k}: ${v}`),
-        status.taskProgress ? `Tasks: ${status.taskProgress.done}/${status.taskProgress.total} done` : "",
-        "",
-        `Dispatch prompt:`,
-        `  subagent_create({ name: "${next}", task: "Continue the SDD ${next.replace("sdd-", "")} phase for change '${status.activeChange}'. Read the previous phase's output from the artifact paths above and produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution." })`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-    },
-  });
-}
+          // For artifact phases, fetch the native per-artifact instructions so the
+          // dispatched agent gets the authoritative template/instruction/dependencies.
+          let instructionsBlock = "";
+          const isArtifactPhase = ["proposal", "specs", "design", "tasks"].includes(artifactId);
+          if (isArtifactPhase) {
+            const inst = fetchInstructions(ctx.cwd, artifactId, status.activeChange);
+            if (inst && (inst.template || inst.instruction)) {
+              instructionsBlock = [
+                "",
+                `Native instructions for \`${artifactId}\` artifact:`,
+                inst.instruction ? NL + inst.instruction : "",
+                inst.template ? NL + `Template (fill this structure):` + NL + "```markdown" + NL + inst.template + NL + "```" : "",
+                inst.dependencies?.length ? NL + `Dependencies to read first: ${inst.dependencies.join(", ")}` : "",
+              ]
+                .filter(Boolean)
+                .join(NL);
+            }
+          }
+
+          return [
+            `Active change: ${status.activeChange}`,
+            `Next phase: ${next}`,
+            `Artifact paths:`,
+            ...Object.entries(status.artifactPaths || {}).map(([k, v]) => `  - ${k}: ${v}`),
+            status.taskProgress ? `Tasks: ${status.taskProgress.done}/${status.taskProgress.total} done` : "",
+            "",
+            `Dispatch prompt:`,
+            `  subagent_create({ name: "${next}", task: "Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change's existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}" })`,
+          ]
+            .filter(Boolean)
+            .join(NL);
+        },
+      });
+    }

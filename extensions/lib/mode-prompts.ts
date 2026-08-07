@@ -286,19 +286,21 @@ Reference actual code — no hand-waving.>
 `;
 
 /** Context-os spec-driven workflow: Q&A → spec → Commander → implement. */
-export const SPEC_PROMPT = `You are in SPEC mode. For feature specs, prefer gentle-pi SDD (Spec-Driven Development) if available; fall back to the context-os workflow.
+export const SPEC_PROMPT = `You are in SPEC mode. Write feature specs as OpenSpec changes by default; fall back to the context-os workflow when you only need a dated spec set.
 
 ## Workflow
 
-### Mode Selection (gentle-pi SDD vs context-os)
+### Mode Selection (OpenSpec SDD vs context-os)
 
-**gentle-pi SDD** (recommended when gentle-pi is available):
-- If \`globalThis.__gentlePiAvailable === true\` or \`gentle_status\` returns \`gentlePiAvailable: true\`, use the SDD workflow instead of this context-os workflow.
-- Call \`gentle_skills { task: "<feature description>", targetFiles: [] }\` before writing the spec to load relevant project conventions.
-- Use \`gentle_status\` to confirm gentle-pi version and preflight state.
-- For SDD workflow, delegate to \`/sdd-init\` then \`/sdd-continue\` to run the full OpenSpec artifact lifecycle.
+**OpenSpec SDD** (default for any feature that should be tracked and merged):
+- Open or create an OpenSpec change: use \`openspec_run { args: ['new', '<kebab-name>'] }\` if none exists, else \`sdd_status\` to find the active change.
+- Drive the spec-driven artifact graph through the native engine:
+  - \`openspec status --change <name> --json\` → which artifact is ready next (proposal → specs → design → tasks).
+  - \`openspec instructions <artifact> --change <name> --json\` → the authoritative template/instruction for that artifact.
+- Write the proposal.md, then the delta specs, design, and tasks in dependency order.
+- Validate with \`openspec_run { args: ['validate', '<name>'] }\` before applying.
 
-**context-os workflow** (fallback when gentle-pi is not available):
+**context-os workflow** (fallback for one-off dated specs not tied to a change):
 - Follow the workflow below for writing feature specs as dated spec sets.
 
 ## Workflow
@@ -355,83 +357,49 @@ SDD is a fluid, artifact-based workflow built on [OpenSpec](https://github.com/F
 
 This is the default workflow for non-trivial work. PLAN mode is for one-off plans that don't need a durable spec; SDD is for changes that need to be tracked, reviewed, and merged.
 
-## Phase 0: Preflight (Once Per Session) — HARD GATE
+## Tools
 
-Before any SDD work in a session, the parent must capture 4 choices. The bridge tool \`sdd_status\` returns \`preflight.captured: false\` and \`nextRecommended: "sdd-preflight"\` when missing — you cannot advance.
+- \`sdd_status\` — read-only JSON: active change, artifact readiness, next phase (native engine).
+- \`openspec_run\` — run any \`openspec\` subcommand (status, instructions, validate, show, archive, list).
 
-The 4 choices:
-1. **executionMode** — \`interactive\` (pause between phases) or \`auto\` (run through)
-2. **artifactStore** — \`openspec\` (file-based) or \`engram\` (memory-based) or \`both\`
-3. **chainedPrStrategy** — \`auto-forecast\`, \`ask-always\`, \`single-pr-default\`, or \`force-chained\`
-4. **reviewBudgetLines** — integer (default 400)
+## Bootstrap
 
-How to capture:
-- **Ask the user** via \`ask_user\` with 4 questions (one per choice)
-- **Save** with: \`/sdd-preflight <executionMode> <artifactStore> <chainedPrStrategy> <reviewBudgetLines>\`
-- **Project override** wins over session: put a \`preflight:\` block in \`openspec/config.yaml\` with the 4 keys
+If \`openspec/config.yaml\` doesn't exist, initialize the project:
 
-Hard gate: \`/sdd-continue\` and \`sdd_status\` both refuse to dispatch if \`preflight.captured === false\`. The first SDD action in a session MUST be capturing preflight. If the user explicitly changes a preflight value later in the same session, follow the new instruction (call \`/sdd-preflight\` with the updated values).
+\`\`\`bash
+openspec init --tools pi
+\`\`\`
 
-## Project Bootstrap
-
-If \`openspec/config.yaml\` doesn't exist, run \`/sdd-init\` (gentle-pi command) which:
-- Auto-detects the project stack (Node, Python, Go, etc.)
-- Discovers test commands and frameworks
-- Writes \`openspec/config.yaml\` with strict TDD, test runner, and quality gates
-- Creates \`openspec/specs/\` and \`openspec/changes/archive/\` directories
+This writes \`openspec/config.yaml\` (schema: spec-driven), creates \`openspec/specs/\` and \`openspec/changes/\`, and generates native Pi prompts/skills (\`.pi/prompts/opsx-*.md\`, \`.pi/skills/openspec-*/\`).
 
 ## Workflow
 
+The native OpenSpec engine is the state authority. Spec-driven artifact graph:
+
 \`\`\`text
-init → explore → proposal → spec → design → tasks → apply → verify → sync → archive
+proposal → specs → design → tasks → apply → verify → sync → archive
 \`\`\`
 
-Dependency graph:
-\`\`\`text
-proposal → spec ─┬→ tasks → apply → verify → sync → archive
-proposal → design ┘
-\`\`\`
+Drive each phase through the engine, never by guessing:
 
-For each SDD phase, delegate to the matching agent (gentle-pi provides them as \`sdd-proposal\`, \`sdd-spec\`, etc.):
-- Use \`subagent_create({ name: "sdd-proposal", task: "..." })\` to dispatch
-- The agent handles the artifact write and returns a Result Contract (status, executive_summary, artifacts, next_recommended, risks, skill_resolution)
-- Validate the result before moving to the next phase
+1. **Resolve the change** — \`sdd_status\` returns the active change, artifact readiness, and next phase. If ambiguous, ask the user.
+2. **Read native readiness** — \`openspec status --change <name> --json\` gives the artifact graph: which artifact is \`ready\`, which are \`blocked\` on missing deps, plus \`applyRequires\` and \`actionContext\` (allowed edit roots).
+3. **Write the next ready artifact** — \`openspec instructions <artifact> --change <name> --json\` returns the authoritative \`instruction\`, \`template\`, \`dependencies\`, and \`unlocks\`. Fill the template into the resolved output path.
+4. **Continue** until \`tasks.md\` is written and \`applyRequires\` is satisfied.
+5. **Apply** — implement each task from \`tasks.md\`, checking off \`- [ ]\` as done.
+6. **Verify** — \`openspec validate --change <name> --json\` confirms artifacts are well-formed; run the project test suite per strict TDD when configured.
+7. **Sync + archive** — merge approved delta specs into \`openspec/specs/<capability>/\` and finalize with \`openspec archive <name>\`.
 
-## Status Engine
+Use the \`/sdd-continue\` dispatcher: it reads native status, decides the next ready phase, and prints a dispatch prompt pre-loaded with the artifact's native instructions.
 
-Before \`apply\`, \`verify\`, \`sync\`, or \`archive\`, always resolve the active change state:
-1. \`openspec list --json\` — see all active changes
-2. \`openspec show <change>\` — see artifacts and status
-3. \`openspec validate <change>\` — confirm artifacts are well-formed
+## Strict TDD
 
-Never guess the active change. If ambiguous, ask the user.
-
-## Tools and Commands
-
-Tools available (provided by sdd-bridge extension):
-- \`sdd_status\` — read-only JSON: active change, artifact paths, task progress, dependency readiness, next recommended action
-- \`openspec_run\` — run any \`openspec\` subcommand
-
-Commands:
-- \`/sdd-status [change]\` — read status
-- \`/sdd-continue\` — the native dispatcher: read status, decide next ready phase, dispatch the right \`sdd-*\` agent
-- \`/sdd-archive <change>\` — finalize a completed change
-- \`/sdd-init\` — bootstrap project on first use
-
-## Mode Mapping
-
-SDD subsumes the other modes for change work:
-- SPEC mode (one-off dated specs) → SDD with \`sdd-proposal + sdd-spec\`
-- PLAN mode (ad-hoc plan) → SDD with \`sdd-tasks\`
-- CHAIN \`sdd-plan\` → planning through proposal/spec/design/tasks
-- CHAIN \`sdd-full\` → entire SDD lifecycle
-- CHAIN \`sdd-verify\` → apply + verify
-
-Existing PLAN/TEAM/CHAIN/PIPELINE modes still work for non-SDD tasks. Use SDD for changes you want to track.
+If \`openspec/config.yaml\` declares \`strict_tdd: true\` and a \`test_command\`, the \`apply\` and \`verify\` phases must record RED → GREEN → TRIANGULATE → REFACTOR evidence. Forward the test runner command to the apply/verify dispatch.
 
 ## Result Contract
 
 Every phase result must include:
+
 \`\`\`text
 status
 executive_summary
@@ -443,7 +411,14 @@ skill_resolution
 
 If a phase result is missing any field or status indicates partial/failed/blocked, do not advance to the next phase.
 
-## Strict TDD
+## Mode Mapping
 
-If \`openspec/config.yaml\` declares \`strict_tdd: true\` and a \`test_command\`, the \`apply\` and \`verify\` phases must record RED → GREEN → TRIANGULATE → REFACTOR evidence. Forward the test runner command to the \`sdd-apply\` and \`sdd-verify\` agents in their task prompt.
+SDD subsumes the other modes for change work:
+- SPEC mode (one-off dated specs) → SDD with \`proposal + specs\`
+- PLAN mode (ad-hoc plan) → SDD with \`tasks\` when the user wants durable tracking
+- CHAIN \`sdd-plan\` → planning through proposal/spec/design/tasks
+- CHAIN \`sdd-full\` → entire SDD lifecycle
+- CHAIN \`sdd-verify\` → apply + verify
+
+Existing PLAN/TEAM/CHAIN/PIPELINE modes still work for non-SDD tasks. Use SDD for changes you want to track.
 `;
