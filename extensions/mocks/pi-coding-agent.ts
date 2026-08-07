@@ -9,6 +9,8 @@ export class DynamicBorder {
   }
 }
 
+export const VERSION = "test";
+
 export function getMarkdownTheme() {
   return {
     h1: (s: string) => s,
@@ -37,6 +39,7 @@ export interface ExtensionAPI {
 
 export interface ExtensionContext {
   hasUI: boolean;
+  cwd?: string;
   ui: {
     setTheme: (name: string) => { success: boolean };
     setTitle: (title: string) => void;

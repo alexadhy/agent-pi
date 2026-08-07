@@ -15,8 +15,10 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { VERSION } from "@earendil-works/pi-coding-agent";
+import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename, dirname } from "node:path";
 import { homedir } from "node:os";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
 
@@ -27,16 +29,33 @@ const DEFAULT_ART = `                             ▄▄
  ▀▀▀▀▀  ▀▀▀██  ▀▀▀▀▀ ▀▀  ▀▀   ▀▀▀▀
         ████▀                     `;
 
-function loadArt(): string {
-  const path = join(homedir(), "Desktop", "agent.txt");
-  if (existsSync(path)) {
-    try {
-      return readFileSync(path, "utf-8").trimEnd();
-    } catch {
-      // fall through to default
-    }
+// ── Context panel (mirrors gentle-pi's banner): GIT / PATH / VER ──
+
+function gitBranch(cwd: string): string {
+  try {
+    return execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "\u2014";
   }
-  return DEFAULT_ART;
+}
+
+export function shortDir(cwd: string): string {
+  const child = basename(cwd);
+  const parent = basename(dirname(cwd));
+  return parent && parent !== child ? `${parent}/${child}` : child;
+}
+
+export function loadStats(ctx: ExtensionContext): Array<[string, string]> {
+  const cwd = ctx.cwd ?? process.cwd();
+  return [
+    ["GIT:", gitBranch(cwd)],
+    ["PATH:", shortDir(cwd)],
+    ["VER:", `v${VERSION}`],
+  ];
 }
 
 export function showBanner(ctx: ExtensionContext) {
@@ -46,6 +65,8 @@ export function showBanner(ctx: ExtensionContext) {
   const split = art.split("\n");
   const firstNonEmpty = split.findIndex((l) => l.trim() !== "");
   const lines = firstNonEmpty >= 0 ? split.slice(firstNonEmpty) : split;
+  const stats = loadStats(ctx);
+  const labelW = Math.max(...stats.map(([l]) => l.length));
 
   ctx.ui.setWidget(
     "agent-banner",
@@ -53,6 +74,14 @@ export function showBanner(ctx: ExtensionContext) {
       invalidate() {},
       render(width: number): string[] {
         const rendered = lines.map((line) => theme.fg("accent", line));
+        rendered.push("");
+        for (const [label, value] of stats) {
+          rendered.push(
+            theme.fg("dim", label.padEnd(labelW)) +
+              theme.fg("dim", "  ") +
+              theme.fg("accent", value),
+          );
+        }
         rendered.push("");
         return rendered;
       },
