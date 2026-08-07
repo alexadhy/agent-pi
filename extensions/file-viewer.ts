@@ -427,6 +427,21 @@ export default function (pi: ExtensionAPI) {
         throw new Error(`File not found: ${p.file_path}`);
       }
 
+          // Planning-mode OpenSpec surfacing: if the path is an OpenSpec change
+          // directory, point to the full board (proposal/spec/design/tasks).
+          if (statSync(p.file_path).isDirectory() && existsSync(join(p.file_path, "proposal.md"))) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    "This path is an OpenSpec change directory. Use /board (or show_spec on folder_path) to view all artifacts (proposal, spec, design, tasks) together. To open a single artifact, pass proposal.md / design.md / tasks.md directly.",
+                },
+              ],
+              details: { status: "openspec-change-dir", changeDir: p.file_path },
+            };
+          }
+
       const result = await runViewer(ctx, p);
       return {
         content: [

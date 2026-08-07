@@ -79,8 +79,68 @@ const MIME_TYPES: Record<string, string> = {
 
 // ── Folder Discovery ─────────────────────────────────────────────────
 
-function discoverSpecDocuments(folderPath: string): SpecDocument[] {
+export function discoverSpecDocuments(folderPath: string): SpecDocument[] {
   const docs: SpecDocument[] = [];
+
+  // 0. OpenSpec change layout: proposal.md / specs/** / design.md / tasks.md
+  //    (takes precedence when the folder is an OpenSpec change root)
+  const osProposal = join(folderPath, "proposal.md");
+  const osDesign = join(folderPath, "design.md");
+  const osTasks = join(folderPath, "tasks.md");
+  const osSpecsDir = join(folderPath, "specs");
+  const isOpenSpecChange = existsSync(osProposal) || existsSync(osDesign) || existsSync(osTasks);
+  if (isOpenSpecChange) {
+    if (existsSync(osProposal)) {
+      docs.push({
+        key: "proposal",
+        label: "Proposal",
+        markdown: readFileSync(osProposal, "utf-8"),
+        filePath: "proposal.md",
+      });
+    }
+    if (existsSync(osSpecsDir)) {
+      try {
+        const walk = (dir: string, depth: number): string[] => {
+          if (depth > 4) return [];
+          const out: string[] = [];
+          for (const ent of readdirSync(dir, { withFileTypes: true })) {
+            const p = join(dir, ent.name);
+            if (ent.isDirectory()) out.push(...walk(p, depth + 1));
+            else if (ent.name.endsWith(".md")) out.push(p);
+          }
+          return out.sort();
+        };
+        const specFiles = walk(osSpecsDir, 0);
+        const files = specFiles.filter((f) => !f.includes("archive"));
+        files.forEach((f) => {
+          const rel = f.replace(folderPath + "/", "");
+          docs.push({
+            key: "spec-" + rel.replace(/[^a-z0-9]+/gi, "-"),
+            label: "Spec: " + basename(rel, ".md").replace(/[_-]/g, " "),
+            markdown: readFileSync(f, "utf-8"),
+            filePath: rel,
+          });
+        });
+      } catch {}
+    }
+    if (existsSync(osDesign)) {
+      docs.push({
+        key: "design",
+        label: "Design",
+        markdown: readFileSync(osDesign, "utf-8"),
+        filePath: "design.md",
+      });
+    }
+    if (existsSync(osTasks)) {
+      docs.push({
+        key: "tasks",
+        label: "Tasks",
+        markdown: readFileSync(osTasks, "utf-8"),
+        filePath: "tasks.md",
+      });
+    }
+    return docs;
+  }
 
   // 1. spec.md — main spec document
   const specPath = join(folderPath, "spec.md");
@@ -825,6 +885,71 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("Changes requested — reviewing comments...", "info");
         } else if (result.modified) {
           ctx.ui.notify("Spec was modified but no action taken.", "info");
+        }
+      } catch (err: any) {
+        ctx.ui.notify(`Error: ${err.message}`, "error");
+      }
+    },
+  });
+
+  // ── /board command ─────────────────────────────────────────────────
+  // Opens the active OpenSpec change's proposal/spec/design/tasks as wizard
+  // steps in the spec viewer (OpenSpec layout discovered by discoverSpecDocuments).
+
+  pi.registerCommand("board", {
+    description:
+      "Open the active OpenSpec change (proposal, spec, design, tasks) in the spec viewer. Usage: /board [change-name]",
+    handler: async (args, ctx) => {
+      if (!ctx.hasUI) {
+        ctx.ui.notify("/board requires interactive mode", "error");
+        return;
+      }
+
+      // Locate the openspec change root.
+      const cwd = ctx.cwd ?? process.cwd();
+      const allowed = [
+        join(cwd, "openspec", "changes"),
+        join(cwd, "..", "openspec", "changes"),
+      ];
+      let changesDir: string | null = null;
+      for (const d of allowed) {
+        if (existsSync(d)) { changesDir = d; break; }
+      }
+      if (!changesDir) {
+        ctx.ui.notify("No OpenSpec change root found. Run openspec init first.", "error");
+        return;
+      }
+
+      const arg = args.trim();
+      let changeDir: string | null = null;
+
+      if (arg) {
+        const p = join(changesDir, arg);
+        if (existsSync(p) && statSync(p).isDirectory()) changeDir = p;
+      }
+
+      if (!changeDir) {
+        // Pick the most recently modified active change (ignore archive).
+        const candidates = readdirSync(changesDir, { withFileTypes: true })
+          .filter((e) => e.isDirectory() && e.name !== "archive")
+          .map((e) => join(changesDir, e.name))
+          .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+        changeDir = candidates[0] || null;
+      }
+
+      if (!changeDir) {
+        ctx.ui.notify("No active OpenSpec change. Create one: openspec new change <name>", "error");
+        return;
+      }
+
+      const displayTitle = "Board: " + basename(changeDir);
+
+      try {
+        const result = await runSpecViewer(ctx, changeDir, displayTitle);
+        if (result.action === "approved") {
+          ctx.ui.notify("Approved.", "info");
+        } else if (result.action === "changes_requested") {
+          ctx.ui.notify("Changes requested — comments are in the viewer.", "info");
         }
       } catch (err: any) {
         ctx.ui.notify(`Error: ${err.message}`, "error");
