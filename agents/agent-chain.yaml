@@ -177,3 +177,29 @@ write-docs:
       prompt: "Explore the codebase for: $INPUT. Map relevant files, functions, and patterns. Identify entry points, APIs, configuration, and usage examples."
     - agent: documenter
       prompt: "Based on this codebase analysis, write documentation using the Diataxis framework for: $INPUT"
+
+sdd-plan-cli:
+  description: "OpenSpec planning chain — drive proposal → specs → design → tasks through the native openspec engine"
+  steps:
+    - agent: planner
+      prompt: "Plan this change as OpenSpec artifacts using the native engine. First call `sdd_status`, then if needed `openspec_run { args: ['new', '<kebab-name>'] }`. Loop: (1) `openspec status --change <name> --json` to find the next ready artifact; (2) `openspec instructions <artifact> --change <name> --json` for the authoritative template/instruction; (3) write the artifact to its resolved output path. Stop when tasks.md is written and validate with `openspec_run { args: ['validate', '<name>'] }`.\n\n$INPUT"
+
+sdd-full-cli:
+  description: "Full OpenSpec SDD lifecycle — plan, apply, verify, sync, archive via native engine (auto mode)"
+  steps:
+    - agent: planner
+      prompt: "Plan the OpenSpec change through the native engine (see sdd-plan-cli): resolve the change, write proposal → specs → design → tasks in dependency order using `openspec status` + `openspec instructions`. Validate before implementing.\n\n$INPUT"
+    - agent: builder
+      prompt: "Implement the OpenSpec change tasks. Read tasks.md from the active change (via `sdd_status`). For each `- [ ]` task: make the change, then mark it `- [x]` in tasks.md. Follow strict TDD (RED→GREEN→TRIANGULATE→REFACTOR) if `openspec/config.yaml` declares strict_tdd + test_command. Stop when all tasks are done.\n\n$INPUT"
+    - agent: reviewer
+      prompt: "Verify the OpenSpec change implementation. Run `openspec_run { args: ['validate', '<name>'] }` and confirm tasks are all done and artifacts well-formed. For review: risk, resilience, reliability, readability lenses. Report pass/fail.\n\n$INPUT"
+    - agent: builder
+      prompt: "Sync approved OpenSpec delta specs into `openspec/specs/<capability>/` and archive the change with `openspec_run { args: ['archive', '<name>', '--yes'] }` once verification passed.\n\n$INPUT"
+
+sdd-verify-cli:
+  description: "Verified apply for an OpenSpec change — implement tasks, validate, verify against specs"
+  steps:
+    - agent: builder
+      prompt: "Apply the OpenSpec change tasks (see sdd-full-cli apply step): resolve via `sdd_status`, implement each task, mark done, run the test suite per strict TDD.\n\n$INPUT"
+    - agent: reviewer
+      prompt: "Verify against the OpenSpec spec. Run `openspec_run { args: ['validate', '<name>'] }`, run tests, and apply risk/resilience/reliability/readability review lenses. Report pass/fail with evidence.\n\n$INPUT"

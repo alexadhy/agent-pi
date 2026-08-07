@@ -41,6 +41,7 @@ import {
 	fetchInstructions,
 	type NativeStatus,
 } from "./lib/openspec-native.ts";
+import { assertStrictTddFromConfig } from "./lib/openspec-engineering.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -371,12 +372,10 @@ const output = JSON.stringify(status, null, 2);
 
       const result = runOpenspec(ctx.cwd, args);
       const output = [
-        result.stdout,
-        result.stderr ? `\n[stderr]\n${result.stderr}` : "",
-        result.code !== 0 ? `\n[exit code: ${result.code}]` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
+  result.stdout,
+  result.stderr ? "\n[stderr]\n" + result.stderr : "",
+  result.code !== 0 ? "\n[exit code: " + result.code + "]" : "",
+].join("\n");
 
       return {
         content: [{ type: "text" as const, text: output || "(no output)" }],
@@ -420,7 +419,78 @@ const output = JSON.stringify(status, null, 2);
 
   // ── /sdd-status command ───────────────────────
 
-  pi.registerCommand("sdd-status", {
+  pi.registerTool({
+  name: "openspec_change",
+  label: "OpenSpec Change",
+  description: [
+    "Open or create an OpenSpec change and return its native status.",
+    "Use from any mode to bind work to the spec-driven artifact graph.",
+  ].join("\n"),
+  parameters: Type.Object({
+    name: Type.Optional(Type.String({ description: "Change name to open/create. If omitted, the active change is used." })),
+  }),
+  async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+    const { name } = (params || {}) as { name?: string };
+    if (name && openspecAvailable()) {
+      const created = runOpenspec(ctx.cwd, ["new", "change", name]);
+      if (created.code !== 0 && !/exists|already/i.test(created.stderr)) {
+        return { content: [{ type: "text" as const, text: `OpenSpec CLI failed: ${created.stderr}` }], details: { status: "error", args: ["new", "change", name] } };
+      }
+    }
+    const status = buildSddStatus(ctx.cwd);
+    const selected = (name && status.changes.some((c) => c.name === name)) ? name : status.activeChange;
+    const s = { ...status, activeChange: selected };
+    return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }], details: { status: "done", activeChange: selected, nextRecommended: s.nextRecommended } };
+  },
+});
+
+pi.registerTool({
+  name: "openspec_next",
+  label: "OpenSpec Next Artifact",
+  description: [
+    "Return the next ready artifact for a change plus its native instructions",
+    "(template, instruction, dependencies) so the agent can write it directly.",
+  ].join("\n"),
+  parameters: Type.Object({
+    change: Type.String({ description: "Change name." }),
+    artifact: Type.Optional(Type.String({ description: "Optional artifact id override (proposal|specs|design|tasks)." })),
+  }),
+  async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+    const { change, artifact } = (params || {}) as { change: string; artifact?: string };
+    const nativeStatus = parseNativeStatus(openspecJson<NativeStatus>(ctx.cwd, ["status", "--change", change]));
+    const artifactId = artifact || nextArtifactId(nativeStatus) || "proposal";
+    const inst = fetchInstructions(ctx.cwd, artifactId, change);
+    const result = { change, artifactId, phase: nativePhaseToLabel(artifactId), nativeStatus, instructions: inst };
+    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], details: { status: "done", change, artifactId } };
+  },
+});
+
+pi.registerTool({
+  name: "openspec_verify",
+  label: "OpenSpec Verify",
+  description: [
+    "Validate an OpenSpec change's artifacts via `openspec validate --json`.",
+    "Use before apply/archive to confirm well-formed artifacts.",
+  ].join("\n"),
+  parameters: Type.Object({
+    change: Type.String({ description: "Change name to validate." }),
+  }),
+  async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+    const { change } = (params || {}) as { change: string };
+    const result = runOpenspec(ctx.cwd, ["validate", "--change", change, "--json", "--no-interactive"]);
+    const output = [
+      result.stdout,
+      result.stderr ? "\n[stderr]\n" + result.stderr : "",
+      result.code !== 0 ? "\n[exit code: " + result.code + "]" : "",
+    ].join("\n");
+    return {
+      content: [{ type: "text" as const, text: output || "(validation passed)" }],
+      details: { status: result.code === 0 ? "done" : "error", change, code: result.code },
+    };
+  },
+});
+
+pi.registerCommand("sdd-status", {
     description: "Show SDD status for current project (active change, artifacts, next phase).",
     handler: async (_args, ctx) => {
       const status = buildSddStatus(ctx.cwd);
@@ -518,18 +588,16 @@ const output = JSON.stringify(status, null, 2);
           const status = buildSddStatus(ctx.cwd);
 
           if (status.nextRecommended === "sdd-init") {
-            return `SDD not initialized. Run openspec init (or /sdd-init) to bootstrap, or:` + NL + `  openspec init` + NL + NL + status.message;
+            return `SDD not initialized. Run openspec init (or /sdd-init) to bootstrap.` + "\n" + `  openspec init` + "\n" + "\n" + status.message;
           }
 
           if (!status.activeChange) {
-            return status.message + NL + NL + `Suggested command:` + NL + `  openspec new <change-name>`;
+            return status.message + "\n" + "\n" + `Suggested command:` + "\n" + `  openspec new <change-name>`;
           }
 
           const next = status.nextRecommended;
           const artifactId = next.replace("sdd-", "");
 
-          // For artifact phases, fetch the native per-artifact instructions so the
-          // dispatched agent gets the authoritative template/instruction/dependencies.
           let instructionsBlock = "";
           const isArtifactPhase = ["proposal", "specs", "design", "tasks"].includes(artifactId);
           if (isArtifactPhase) {
@@ -538,13 +606,20 @@ const output = JSON.stringify(status, null, 2);
               instructionsBlock = [
                 "",
                 `Native instructions for \`${artifactId}\` artifact:`,
-                inst.instruction ? NL + inst.instruction : "",
-                inst.template ? NL + `Template (fill this structure):` + NL + "```markdown" + NL + inst.template + NL + "```" : "",
-                inst.dependencies?.length ? NL + `Dependencies to read first: ${inst.dependencies.join(", ")}` : "",
+                inst.instruction ? "\n" + inst.instruction : "",
+                inst.template ? "\n" + `Template (fill this structure):` + "\n" + "```markdown" + "\n" + inst.template + "\n" + "```" : "",
+                inst.dependencies?.length ? "\n" + `Dependencies to read first: ${inst.dependencies.join(", ")}` : "",
               ]
                 .filter(Boolean)
-                .join(NL);
+                .join("\n");
             }
+          }
+
+          // Strict TDD: forward the runner for apply/verify when the config enables it.
+          let tddBlock = "";
+          if (artifactId === "apply" || artifactId === "verify") {
+            const tdd = assertStrictTddFromConfig(ctx.cwd);
+            if (tdd.enabled) tddBlock = "\n" + tdd.prompt;
           }
 
           return [
@@ -555,10 +630,10 @@ const output = JSON.stringify(status, null, 2);
             status.taskProgress ? `Tasks: ${status.taskProgress.done}/${status.taskProgress.total} done` : "",
             "",
             `Dispatch prompt:`,
-            `  subagent_create({ name: "${next}", task: "Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change's existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}" })`,
+            `  subagent_create({ name: "${next}", task: "Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change\'s existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}${tddBlock}" })`,
           ]
             .filter(Boolean)
-            .join(NL);
+            .join("\n");
         },
       });
-    }
+  }
