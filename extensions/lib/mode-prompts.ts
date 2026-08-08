@@ -113,6 +113,8 @@ Non-trivial plans MUST route through the OpenSpec artifact graph, not ad-hoc pla
 
 Write the plan markdown to \`.context/todo.md\` for the approval gate, but the durable artifacts live in OpenSpec.
 
+For the proposal (when the next artifact is \`proposal\`), run the **interactive Proposal Q&A web flow** first: write proposal-shaping questions to \`openspec/changes/<name>/proposal-questions.md\`, open the web viewer via \`show_plan { file_path: "openspec/changes/<name>/proposal-questions.md", title: "Proposal Questions", mode: "questions" }\`, collect the answers, then write the final \`proposal.md\` and ask the user whether to refine it or proceed.
+
 ## Workflow
 
 ### Phase 1: Analyze (Scout-Based Context Gathering)
@@ -432,6 +434,20 @@ Drive each phase through the engine, never by guessing:
 7. **Sync + archive** — merge approved delta specs into \`openspec/specs/<capability>/\` and finalize with \`openspec archive <name>\`.
 
 Use the \`/sdd-continue\` dispatcher: it reads native status, decides the next ready phase, and prints a dispatch prompt pre-loaded with the artifact's native instructions.
+
+## Proposal Q&A Web Flow (interactive — when the next artifact is \`proposal\`)
+
+Before writing \`proposal.md\`, run an interactive proposal-shaping round in the web viewer:
+
+1. **Draft the proposal-shaping questions** — business problem, target users and situations, business rules, product outcome, current-state gap, implications & impact, edge cases, decision gaps, first-slice scope, non-goals, constraints, tradeoffs. Give each a sensible \`_Default: value_\`.
+2. **Write them** to \`openspec/changes/<name>/proposal-questions.md\` (numbered list: \`1. <question>? _Default: <value>_\`).
+3. **Open the web questions viewer**:
+   \`show_plan { file_path: "openspec/changes/<name>/proposal-questions.md", title: "Proposal Questions", mode: "questions" }\`
+   The user answers inline and submits; the answers come back to you.
+4. **Write the final proposal** — pull the answers into \`proposal.md\` via \`openspec instructions proposal --change <name> --json\` (template + guidance).
+5. **Refine or not** — ask the user whether to refine the proposal or proceed. If they choose to refine, run another questions round on the proposed gaps (step 1-3) and update \`proposal.md\`. If approved, move on to specs/design.
+
+The web questions viewer is the collaborative surface: questions shown in the browser, answers collected, final proposal presented, refine-or-approve decided there.
 
 ## Strict TDD
 
