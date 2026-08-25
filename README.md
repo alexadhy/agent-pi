@@ -4,7 +4,7 @@
 
 agent-pi turns Pi from a single coding assistant into a reliable coordination runtime: structured planning, parallel and sequential agents, durable task state, adversarial review, security controls, and browser-based inspection—all as extensions, skills, prompts, and agent definitions.
 
-Built with gratitude to **[Ruiz Rica](https://ruizrica.io)**, whose work this project grew from, and **[IndyDevDan](https://www.youtube.com/@indydevdan)**, whose Pi experimentation and teaching helped shape the direction.
+This repository began as a fork of **[ruizrica/agent-pi](https://github.com/ruizrica/agent-pi)** and has since departed substantially into its own architecture and implementation. We retain gratitude to **[Ruiz Rica](https://ruizrica.io)**, and to **[IndyDevDan](https://www.youtube.com/@indydevdan)**, whose Pi experimentation and teaching helped shape the direction.
 
 ## End goal
 
@@ -129,7 +129,7 @@ agent-pi/
 ## Install
 
 ```bash
-git clone https://github.com/ruizrica/agent-pi.git
+git clone https://github.com/alexadhy/agent-pi.git
 cd agent-pi
 ./install.sh
 ```
@@ -137,7 +137,7 @@ cd agent-pi
 Or install into an existing Pi setup:
 
 ```bash
-pi install git:github.com/ruizrica/agent-pi
+pi install git:github.com/alexadhy/agent-pi
 ```
 
 Pi discovers the extensions, agents, themes, commands, and skills from the package.
