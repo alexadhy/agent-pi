@@ -338,7 +338,7 @@ export function loadPolicy(projectRoot: string): SecurityPolicy {
 
 	const candidates = [
 		join(projectRoot, ".pi", "security-policy.yaml"),
-		join(homedir(), ".pi", "agent", ".pi", "security-policy.yaml"),
+		join(homedir(), ".pi", "agent", "security-policy.yaml"),
 	];
 
 	for (const path of candidates) {
@@ -375,6 +375,8 @@ export function getDefaultPolicy(): SecurityPolicy {
 		prompt_injection_patterns: [
 			{ pattern: "ignore\\s+(all\\s+)?(previous|prior)\\s+instructions?", description: "Instruction override", severity: "block", category: "prompt_injection" },
 			{ pattern: "new\\s+system\\s+prompt", description: "System prompt injection", severity: "block", category: "prompt_injection" },
+			{ pattern: "\\[(ADMIN|INST)\\].*(override|forget|new instructions|unrestricted)", description: "Role marker injection", severity: "block", category: "prompt_injection" },
+			{ pattern: "###\\s+(SYSTEM PROMPT|NEW PROMPT|SYSTEM INSTRUCTION|ADMIN OVERRIDE)", description: "Header injection", severity: "block", category: "prompt_injection" },
 		],
 		allowlist: { commands: [], paths: [] },
 		settings: {

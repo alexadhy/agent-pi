@@ -58,7 +58,10 @@ function textContent(result: any): string {
   // Text from @earendil-works/pi-tui has a .text property (a string)
   if (typeof result === "string") return result;
   if (result && typeof result.text === "string") return result.text;
-  return String(result);
+  if (result?.content && Array.isArray(result.content)) {
+    return result.content.map((item: any) => item?.text || "").join(" ");
+  }
+  return JSON.stringify(result);
 }
 
 // ── Test Suite ─────────────────────────────────────────────────────

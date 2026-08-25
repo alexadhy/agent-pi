@@ -2,6 +2,8 @@
 // ABOUTME: Validates YAML parsing of chain definitions with steps, agents, and prompts
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseChainYaml } from "../lib/parse-chain-yaml.ts";
 
 describe("parseChainYaml", () => {
@@ -24,6 +26,36 @@ describe("parseChainYaml", () => {
 		expect(chains[0].steps[0]).toEqual({ agent: "planner", prompt: "Plan for: $INPUT" });
 		expect(chains[0].steps[1]).toEqual({ agent: "builder", prompt: "Implement: $INPUT" });
 		expect(chains[0].steps[2]).toEqual({ agent: "reviewer", prompt: "Review: $INPUT" });
+	});
+
+	it("runs the adversarial reviewer as a separate step for SDD chains", () => {
+		const yaml = readFileSync(resolve(__dirname, "../../agents/agent-chain.yaml"), "utf8");
+		const chains = parseChainYaml(yaml);
+		for (const name of ["sdd-full-cli", "sdd-verify-cli"]) {
+			const chain = chains.find((candidate) => candidate.name === name);
+			expect(chain).toBeDefined();
+			const reviewer = chain?.steps.find((step) => step.agent === "reviewer");
+			expect(reviewer).toBeDefined();
+			expect(reviewer?.prompt).toContain("independent subagent");
+			expect(reviewer?.prompt).toContain("wrong until objectively verified");
+		}
+	});
+
+	it("defines mailbox receipts and bounded fix review for Judgment Day", () => {
+		const yaml = readFileSync(resolve(__dirname, "../../agents/agent-chain.yaml"), "utf8");
+		const chains = parseChainYaml(yaml);
+		const chain = chains.find((candidate) => candidate.name === "judgment-day");
+		expect(chain).toBeDefined();
+		expect(chain?.steps.map((step) => step.agent)).toEqual([
+			"jd-judge-a",
+			"jd-judge-b",
+			"reviewer",
+			"jd-fix-agent",
+			"reviewer",
+		]);
+		expect(chain?.steps[0].prompt).toContain("REVIEW_A");
+		expect(chain?.steps[3].prompt).toContain("FIX_RECEIPT");
+		expect(chain?.steps[4].prompt).toContain("REVIEW_FINAL");
 	});
 
 	it("should parse multiple chains", () => {

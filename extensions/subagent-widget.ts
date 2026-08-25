@@ -115,6 +115,17 @@ interface SubState {
   watchdogTimer?: ReturnType<typeof setTimeout>; // reference to clear on normal exit
 }
 
+export const SHARED_AGENT_COMMUNICATION_PROMPT = `# Clear, Concise, Actionable Communication
+
+Maintain a no-BS, clear, concise, actionable relationship with the user and coordinator. State results first. Use short direct sentences. Report concrete files, commands, tests, and blockers. Do not claim success without verification. If blocked, state exactly what is missing and the next action. Prefer actionable recommendations over speculation.`;
+
+export function buildAgentSystemPromptArgs(agentPrompt?: string): string[] {
+  return [
+    "--append-system-prompt", SHARED_AGENT_COMMUNICATION_PROMPT,
+    ...(agentPrompt ? ["--append-system-prompt", agentPrompt] : []),
+  ];
+}
+
 export default function (pi: ExtensionAPI) {
   const agents: Map<number, SubState> = new Map();
   let nextId = 1;
@@ -251,10 +262,7 @@ export default function (pi: ExtensionAPI) {
     ];
 
     // Build system prompt: agent definition prompt
-    const systemPromptArgs: string[] = [];
-    if (agentDef?.systemPrompt) {
-      systemPromptArgs.push("--append-system-prompt", agentDef.systemPrompt);
-    }
+    const systemPromptArgs = buildAgentSystemPromptArgs(agentDef?.systemPrompt);
 
     const spawnEnv: Record<string, string | undefined> = {
       ...process.env,
@@ -457,6 +465,29 @@ export default function (pi: ExtensionAPI) {
       });
     });
   }
+
+  // ── Runtime seam for extensions ───────────────────────────────────────────
+  // Unlike a prompt/follow-up message this actually starts the worker process.
+  function spawnFromRuntime(request: { name?: string; task: string; model?: string }): string {
+    if (!widgetCtx) return "subagent runtime is not ready";
+    const id = nextId++;
+    const name = (request.name || "AGENT").toUpperCase();
+    const state: SubState = {
+      id, status: "running", name, task: request.task, textChunks: [], toolCount: 0,
+      elapsed: 0, sessionFile: makeSessionFile(id), turnCount: 1, autoRemove: true,
+      model: request.model, maxDurationMs: resolveTimeout(name),
+    };
+    agents.set(id, state);
+    registerWidget(state);
+    void spawnAgent(state, request.task, widgetCtx);
+    return `SA${id}`;
+  }
+
+  // Exposed for the durable review coordinator. It is intentionally a narrow
+  // seam so mailbox handling does not need to know widget or process details.
+  (globalThis as any).__piSubagentRuntime = { spawn: spawnFromRuntime };
+  // Resume any durable review loops once the real spawn seam is available.
+  (globalThis as any).__piOrchestrator?.recoverReviews?.();
 
   // ── Tools for the Main Agent ──────────────────────────────────────────────
 
@@ -1110,6 +1141,9 @@ export default function (pi: ExtensionAPI) {
       toolkitModelsConfig,
     );
     knownAgents = new Map([...standardAgents, ...toolkitAgents]);
+
+    // Recover durable review loops after the runtime seam is ready.
+    (globalThis as any).__piOrchestrator?.recoverReviews?.();
 
     // Pre-spawn scout subagent so it's always ready for recon tasks
     preSpawnScout(ctx);

@@ -184,8 +184,8 @@ describe("tools resolution from agent defs", () => {
 describe("loadAgentModelsConfig", () => {
 	it("returns hardcoded default when no config file exists", () => {
 		const config = loadAgentModelsConfig("/nonexistent/path");
-		expect(config.default.provider).toBe("anthropic");
-		expect(config.default.model).toBe("claude-haiku-4-5-20251001");
+		expect(config.default.provider).toBe("opencode-go");
+		expect(config.default.model).toBe("minimax-m2.7");
 		expect(Object.keys(config.agents)).toHaveLength(0);
 	});
 });

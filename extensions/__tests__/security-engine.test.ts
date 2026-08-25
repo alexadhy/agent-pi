@@ -985,9 +985,7 @@ describe("bracket and markdown injection patterns (loaded policy)", () => {
 
 	// Use the real policy from YAML so we test the actual patterns
 	beforeAll(() => {
-		const yamlPath = join(__dirname, "..", "..", "..", ".pi", "security-policy.yaml");
-		const raw = readFileSync(yamlPath, "utf-8");
-		policy = parseSecurityYaml(raw);
+		policy = loadPolicy(join(__dirname, ".."));
 	});
 
 	describe("should NOT trigger on normal content (false positives)", () => {

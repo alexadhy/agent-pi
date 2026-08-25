@@ -42,6 +42,7 @@ import {
 	type NativeStatus,
 } from "./lib/openspec-native.ts";
 import { assertStrictTddFromConfig } from "./lib/openspec-engineering.ts";
+import { hasDurableReviewPass } from "./lib/review-coordinator.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -214,7 +215,12 @@ function buildSddStatus(cwd: string): SddStatus {
 
   // 4. Derive next phase from native readiness when available.
   const nextNative = nextArtifactId(nativeStatus);
-  const nextRecommended = nextNative ? nativePhaseToLabel(nextNative) : "sdd-apply";
+  let nextRecommended = nextNative ? nativePhaseToLabel(nextNative) : "sdd-apply";
+  // Apply completion is deliberately gated by the durable final receipt. A
+  // fresh process must not infer completion from task checkboxes alone.
+  if (activeName && nextRecommended === "sdd-archive" && !hasDurableReviewPass(cwd, activeName)) {
+    nextRecommended = "sdd-apply";
+  }
 
   const changeDir = join(cwd, "openspec", "changes", activeName ?? "");
   const artifactPaths = {
@@ -574,6 +580,10 @@ pi.registerCommand("sdd-status", {
       }
 
       const yesFlag = parts.includes("--yes") || parts.includes("-y");
+      if (!hasDurableReviewPass(ctx.cwd, changeName)) {
+        ctx.ui.notify(`Archive blocked: ${changeName} requires durable REVIEW_FINAL PASS.`, "error");
+        return `Archive blocked: ${changeName} requires durable REVIEW_FINAL PASS.`;
+      }
       const result = runOpenspec(ctx.cwd, [
         "archive",
         changeName,
@@ -632,6 +642,10 @@ pi.registerCommand("sdd-status", {
             if (tdd.enabled) tddBlock = "\n" + tdd.prompt;
           }
 
+          const reviewBlock = artifactId === "apply"
+            ? "\n\nMANDATORY JUDGMENT DAY: After implementing every task, send an IMPLEMENTATION_RECEIPT to the mailbox with the active change, requirements, diff, changed files, and test output. Dispatch two separate adversarial subagents using `subagent_create_batch`: `jd-judge-a` and `jd-judge-b`. Each judge must send REVIEW_A or REVIEW_B receipts to the implementor. Consolidate findings, send a REVIEW_CONSOLIDATED receipt, and dispatch the implementor/fix agent to address confirmed blocking findings. Repeat the receipt-driven judge/fix cycle until REVIEW_FINAL is PASS, with a maximum of 3 cycles. Do not report completion while confirmed blocking defects remain."
+            : "";
+
           return [
             `Active change: ${status.activeChange}`,
             `Next phase: ${next}`,
@@ -640,7 +654,7 @@ pi.registerCommand("sdd-status", {
             status.taskProgress ? `Tasks: ${status.taskProgress.done}/${status.taskProgress.total} done` : "",
             "",
             `Dispatch prompt:`,
-            `  subagent_create({ name: "${next}", task: "Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change\'s existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}${tddBlock}" })`,
+            `  subagent_create({ name: "${next}", task: "Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change\'s existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}${tddBlock}${reviewBlock}" })`,
           ]
             .filter(Boolean)
             .join("\n");

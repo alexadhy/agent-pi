@@ -5,8 +5,12 @@ plan-build-review:
       prompt: "Plan the implementation for: $INPUT"
     - agent: builder
       prompt: "Implement the following plan:\n\n$INPUT"
+    - agent: jd-judge-a
+      prompt: "Judgment Day judge A: independently and adversarially review the implementation against the request. Report only evidence-backed findings.\n\n$INPUT"
+    - agent: jd-judge-b
+      prompt: "Judgment Day judge B: independently and adversarially review the implementation against the request. Do not rely on judge A. Report edge cases, regressions, and evidence-backed findings.\n\n$INPUT"
     - agent: reviewer
-      prompt: "Review this implementation for bugs, style, and correctness:\n\n$INPUT"
+      prompt: "Consolidate Judgment Day findings from both judges. Confirm or reject findings with evidence and report whether blocking defects remain.\n\n$INPUT"
 
 plan-build:
   description: "Plan then build — fast two-step implementation without review"
@@ -25,8 +29,12 @@ full-pipeline:
       prompt: "Based on this analysis, create a plan:\n\n$INPUT"
     - agent: builder
       prompt: "Implement this plan:\n\n$INPUT"
+    - agent: jd-judge-a
+      prompt: "Judgment Day judge A: independently and adversarially review the implementation. Report evidence-backed findings.\n\n$INPUT"
+    - agent: jd-judge-b
+      prompt: "Judgment Day judge B: independently and adversarially review the implementation. Challenge edge cases and regressions independently.\n\n$INPUT"
     - agent: reviewer
-      prompt: "Review this implementation:\n\n$INPUT"
+      prompt: "Consolidate both Judgment Day reports and identify unresolved blocking defects.\n\n$INPUT"
     - agent: tester
       prompt: "Write and run tests for this implementation. Report results.\n\n$INPUT"
 
@@ -39,8 +47,12 @@ investigate-fix:
       prompt: "Investigate this bug and propose a fix. Include reproduction steps and root cause.\n\nContext:\n$INPUT\n\nOriginal request: $ORIGINAL"
     - agent: builder
       prompt: "Implement the proposed fix from the reviewer. Apply the changes exactly as specified.\n\n$INPUT"
+    - agent: jd-judge-a
+      prompt: "Judgment Day judge A: independently and adversarially review this bug fix for correctness and completeness.\n\n$INPUT"
+    - agent: jd-judge-b
+      prompt: "Judgment Day judge B: independently and adversarially review this bug fix for regressions and missed edge cases.\n\n$INPUT"
     - agent: reviewer
-      prompt: "Review this bug fix for correctness and completeness:\n\n$INPUT"
+      prompt: "Consolidate both Judgment Day reports and identify unresolved blocking defects.\n\n$INPUT"
 
 plan-review-plan:
   description: "Iterative planning — plan, critique, then refine with feedback"
@@ -59,8 +71,12 @@ test-fix:
       prompt: "Write tests for the following requirement or failing behavior. Run existing tests and report status.\n\n$INPUT"
     - agent: builder
       prompt: "Implement the changes needed to make these tests pass:\n\n$INPUT"
+    - agent: jd-judge-a
+      prompt: "Judgment Day judge A: independently and adversarially review the implementation and test results.\n\n$INPUT"
+    - agent: jd-judge-b
+      prompt: "Judgment Day judge B: independently and adversarially review the implementation and test results, challenging edge cases and regressions.\n\n$INPUT"
     - agent: reviewer
-      prompt: "Review this implementation and test results:\n\n$INPUT"
+      prompt: "Consolidate both Judgment Day reports and identify unresolved blocking defects.\n\n$INPUT"
 
 audit:
   description: "Comprehensive code audit — scans project, finds issues, generates report and hardening plan"
@@ -192,9 +208,9 @@ sdd-full-cli:
     - agent: builder
       prompt: "Implement the OpenSpec change tasks. Read tasks.md from the active change (via `sdd_status`). For each `- [ ]` task: make the change, then mark it `- [x]` in tasks.md. Follow strict TDD (RED→GREEN→TRIANGULATE→REFACTOR) if `openspec/config.yaml` declares strict_tdd + test_command. Stop when all tasks are done.\n\n$INPUT"
     - agent: reviewer
-      prompt: "Verify the OpenSpec change implementation. Run `openspec_run { args: ['validate', '<name>'] }` and confirm tasks are all done and artifacts well-formed. For review: risk, resilience, reliability, readability lenses. Report pass/fail.\n\n$INPUT"
+      prompt: "Run as an independent subagent after implementation. Assume the implementor's work is wrong until objectively verified. Verify the OpenSpec change implementation: run `openspec_run { args: ['validate', '<name>'] }`, confirm tasks are all done and artifacts are well-formed, inspect the diff against the requirements, and run relevant tests. Report confirmed blocking defects, risks, questions, evidence, and remediation. Do not modify files. Report pass/fail.\n\n$INPUT"
     - agent: builder
-      prompt: "Sync approved OpenSpec delta specs into `openspec/specs/<capability>/` and archive the change with `openspec_run { args: ['archive', '<name>', '--yes'] }` once verification passed.\n\n$INPUT"
+      prompt: "Only proceed if the independent reviewer reported PASS with no unresolved confirmed blocking defects. If review failed or findings remain, stop and return the findings without syncing or archiving. Otherwise sync approved OpenSpec delta specs into `openspec/specs/<capability>/` and archive the change with `openspec_run { args: ['archive', '<name>', '--yes'] }`.\n\n$INPUT"
 
 sdd-verify-cli:
   description: "Verified apply for an OpenSpec change — implement tasks, validate, verify against specs"
@@ -202,21 +218,21 @@ sdd-verify-cli:
     - agent: builder
       prompt: "Apply the OpenSpec change tasks (see sdd-full-cli apply step): resolve via `sdd_status`, implement each task, mark done, run the test suite per strict TDD.\n\n$INPUT"
     - agent: reviewer
-      prompt: "Verify against the OpenSpec spec. Run `openspec_run { args: ['validate', '<name>'] }`, run tests, and apply risk/resilience/reliability/readability review lenses. Report pass/fail with evidence.\n\n$INPUT"
+      prompt: "Run as an independent subagent after implementation. Assume the implementor's work is wrong until objectively verified. Verify against the OpenSpec spec: run `openspec_run { args: ['validate', '<name>'] }`, run tests, inspect the diff against requirements, and apply risk/resilience/reliability/readability review lenses. Report confirmed blocking defects, risks, questions, evidence, remediation, and pass/fail. Do not modify files.\n\n$INPUT"
 
 judgment-day:
-  description: "Dual-blind adversarial review (judges A+B) → consolidated findings → surgical fix → re-verify"
+  description: "Mailbox-driven dual-blind adversarial review with bounded implementor/fix loop"
   steps:
     - agent: jd-judge-a
-      prompt: "Blind adversarial review A of the OpenSpec change. Scope: the active change via `sdd_status`; read its proposal/specs/design/tasks and the implemented diff. Use the review ledger schema. Report verdict + confirmed findings.\n\n$INPUT"
+      prompt: "Blind adversarial review A of the OpenSpec change. Scope: the active change via `sdd_status`; read its proposal/specs/design/tasks and implemented diff. Use the review ledger schema. Send a mailbox receipt to the implementor identifying receipt type REVIEW_A, verdict, confirmed findings, evidence, and required fixes.\n\n$INPUT"
     - agent: jd-judge-b
-      prompt: "Independent blind adversarial review B of the SAME change. Do not coordinate with judge A. Penalize edge cases, test gaps, integration risks, user-visible regressions. Use the review ledger schema.\n\nOriginal request: $ORIGINAL\n\nJudge A already reviewed; work independently.\n\n$INPUT"
+      prompt: "Independent blind adversarial review B of the SAME change. Do not coordinate with judge A. Penalize edge cases, test gaps, integration risks, and user-visible regressions. Use the review ledger schema. Send a mailbox receipt to the implementor identifying receipt type REVIEW_B, verdict, confirmed findings, evidence, and required fixes.\n\nOriginal request: $ORIGINAL\n\n$INPUT"
     - agent: reviewer
-      prompt: "Consolidate judge A and judge B findings into a single confirmed/rejected findings ledger. Keep only findings both or either support with concrete user impact; merge duplicates; assign each a `confirm` or `reject` verdict.\n\nJudge A:\n$INPUT_1\n\nJudge B:\n$INPUT_2"
+      prompt: "Consolidate judge A and judge B findings into a single confirmed/rejected findings ledger. Keep only evidence-backed findings, merge duplicates, and assign confirm/reject. Send a mailbox receipt to the implementor identifying receipt type REVIEW_CONSOLIDATED, verdict, blocking findings, and remediation.\n\nJudge A:\n$INPUT_1\n\nJudge B:\n$INPUT_2"
     - agent: jd-fix-agent
-      prompt: "Apply surgical fixes for confirmed findings only. Preserve design intent, add focused tests, and verify under strict TDD when the config enables it.\n\nConsolidated ledger:\n$INPUT\n\nChange context: active OpenSpec change via `sdd_status`."
+      prompt: "Act as the implementor's fix agent. Read the REVIEW_CONSOLIDATED mailbox receipt and apply surgical fixes for confirmed blocking findings only. Preserve design intent, add focused tests, and verify under strict TDD when enabled. Send a mailbox receipt identifying receipt type FIX_RECEIPT with files changed, tests run, and remaining findings. Stop after the bounded review cycle if no blocking findings remain.\n\nConsolidated ledger:\n$INPUT\n\nChange context: active OpenSpec change via `sdd_status`."
     - agent: reviewer
-      prompt: "Verify the OpenSpec change after fixes: run `openspec_run { args: ['validate', '<name>'] }` and rerun the test suite. Confirm all confirmed findings resolved and no regressions introduced.\n\nFix report: $INPUT"
+      prompt: "Final receipt review. Read the FIX_RECEIPT and verify the OpenSpec change after fixes: run `openspec_run { args: ['validate', '<name>'] }` and rerun tests. Send a mailbox receipt identifying receipt type REVIEW_FINAL and PASS only when all confirmed blocking findings are resolved. If not, report the remaining findings and require another bounded cycle.\n\nFix report:\n$INPUT"
 
 4r-review:
   description: "Lens-only full 4R discovery in stable risk, resilience, readability, reliability order; parent owns merge and orchestration"

@@ -215,6 +215,50 @@ Tasks are tracked with the local orchestrator (`orch_group_create`, `orch_task_a
 
 Background subagents have role-based watchdog timeouts: **scout=10min**, builder=30min, reviewer=15min, default=20min. The `subagent_cleanup` tool removes done/error/stale agents, and `subagent_create_batch` auto-cleans before spawning new agents. Duplicate batch spawns are blocked (override with `force: true`).
 
+## SDD Review Architecture
+
+SDD apply uses a durable, receipt-driven review loop. The coordinator runs inside the Pi extension runtime; it is not a separate OS daemon. Mailbox receipts are the event stream, while each OpenSpec change stores its review ledger at `openspec/changes/<change>/review-state.json`.
+
+```mermaid
+flowchart TD
+    U[User selects SDD mode] --> S[SDD bridge]
+    S --> I[Implementor subagent]
+    I -->|IMPLEMENTATION_RECEIPT JSON| M[agent-mailbox]
+    M --> O[agent-orchestrator notifyMailbox]
+    O --> C[Durable review coordinator]
+    C --> L[(review-state.json)]
+
+    C -->|dispatch-judges| R[__piSubagentRuntime.spawn]
+    R --> A[jd-judge-a]
+    R --> B[jd-judge-b]
+    A -->|REVIEW_A| M
+    B -->|REVIEW_B| M
+
+    C -->|consolidate| R
+    R --> K[jd-consolidator]
+    K -->|REVIEW_CONSOLIDATED + REVIEW_FINAL| M
+
+    C -->|blocking findings| R
+    R --> F[jd-fix-agent]
+    F -->|FIX_RECEIPT| M
+    M -. next bounded round .-> C
+
+    C -->|durable PASS only| G[SDD completion gate]
+    C -->|timeout / malformed / max rounds| X[BLOCKED + human escalation]
+    G --> E[Allow apply/archive/sync completion]
+```
+
+### Receipt and completion rules
+
+1. Every receipt is JSON and must identify the OpenSpec `change`; `receiptId` and `correlationId` make processing idempotent.
+2. An implementation receipt starts a review round and dispatches both independent judges.
+3. The coordinator waits for `REVIEW_A` and `REVIEW_B` before starting consolidation.
+4. Confirmed blocking findings dispatch the fix agent, which must send `FIX_RECEIPT`; the loop is bounded to three rounds by default.
+5. SDD is complete only when persisted state contains `status: COMPLETE`, `passed: true`, and a structured `REVIEW_FINAL` with `verdict: PASS` and no blocking findings.
+6. Missing, malformed, duplicate, timed-out, or over-budget receipts never imply success; they remain ignored, blocked, or recoverable from the persisted ledger.
+
+The same `__piSubagentRuntime.spawn` seam is used by normal subagents and by TEAM/CHAIN workflows, so every spawned worker also receives the shared concise/actionable communication policy.
+
 ## Security
 
 The security system operates at three layers:

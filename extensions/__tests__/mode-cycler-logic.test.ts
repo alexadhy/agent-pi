@@ -5,8 +5,8 @@ import { describe, it, expect } from "vitest";
 import { MODES, nextMode, prevMode, modeLabel, modeColor, modeTextAnsi } from "../lib/mode-cycler-logic.ts";
 
 describe("MODES", () => {
-	it("has exactly 6 entries in correct order", () => {
-		expect(MODES).toEqual(["NORMAL", "PLAN", "SPEC", "PIPELINE", "TEAM", "CHAIN"]);
+	it("has the canonical modes in order", () => {
+		expect(MODES).toEqual(["NORMAL", "PLAN", "SPEC", "SDD", "PIPELINE", "TEAM", "CHAIN"]);
 	});
 });
 
@@ -19,8 +19,12 @@ describe("nextMode", () => {
 		expect(nextMode("PLAN")).toBe("SPEC");
 	});
 
-	it("cycles SPEC → PIPELINE", () => {
-		expect(nextMode("SPEC")).toBe("PIPELINE");
+	it("cycles SPEC → SDD", () => {
+		expect(nextMode("SPEC")).toBe("SDD");
+	});
+
+	it("cycles SDD → PIPELINE", () => {
+		expect(nextMode("SDD")).toBe("PIPELINE");
 	});
 
 	it("cycles PIPELINE → TEAM", () => {

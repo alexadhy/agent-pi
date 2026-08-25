@@ -495,6 +495,7 @@ export default function (pi: ExtensionAPI) {
   async function runChain(
     task: string,
     ctx: any,
+    reviewCycle = 0,
   ): Promise<{ output: string; success: boolean; elapsed: number }> {
     if (!activeChain) {
       return { output: "No chain active", success: false, elapsed: 0 };
@@ -567,6 +568,14 @@ export default function (pi: ExtensionAPI) {
 
       stepOutputs.push(result.output);
       input = result.output;
+    }
+
+    if (
+      activeChain.name === "judgment-day" &&
+      reviewCycle < 2 &&
+      !/\bPASS\b/i.test(input)
+    ) {
+      return runChain(task, ctx, reviewCycle + 1);
     }
 
     return { output: input, success: true, elapsed: Date.now() - chainStart };

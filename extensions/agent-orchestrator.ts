@@ -4,7 +4,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { outputLine } from "./lib/output-box.ts";
 import { generateDashboardHTML } from "./lib/orchestrator-dashboard-html.ts";
@@ -13,6 +13,16 @@ import {
   clearActiveViewer,
   notifyViewerOpen,
 } from "./lib/viewer-session.ts";
+import {
+  createReviewState,
+  dispatchKey,
+  hasPendingReviewDispatch,
+  loadReviewState,
+  markReviewDispatch,
+  processReviewReceipt,
+  type ReviewReceipt,
+  type ReviewState,
+} from "./lib/review-coordinator.ts";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -279,6 +289,36 @@ export default function (pi: ExtensionAPI) {
   let state: OrchestratorState = { tasks: [], groups: [], nextTaskId: 1, nextGroupId: 1, agents: [] };
   let cwd = process.cwd();
   let dashboardOpen = false;
+  const reviewStates = new Map<string, ReviewState>();
+
+  function dispatchReviewAction(review: ReviewState, action: string, dispatchId?: string): void {
+    const runtime = (globalThis as any).__piSubagentRuntime;
+    if (!runtime?.spawn) return;
+    const kind = action === "dispatch-judges" ? "judges" : action === "consolidate" ? "consolidate" : action === "dispatch-fix" ? "fix" : "";
+    if (!kind) return;
+    const key = dispatchId || dispatchKey(review.change, review.round, kind);
+    if (!hasPendingReviewDispatch(cwd, review.change, key)) return;
+
+    const context = `OpenSpec change: ${review.change}. Review round ${review.round}/${review.maxRounds}. ` +
+      "Use the mailbox receipt contract and include the exact correlationId in your receipt.";
+    if (kind === "judges") {
+      const task = `${context} Read the implementation and adversarially review it. Send a JSON REVIEW receipt with correlationId ${key}.`;
+      runtime.spawn({ name: "jd-judge-a", task: `${task} Your receipt type is REVIEW_A.` });
+      runtime.spawn({ name: "jd-judge-b", task: `${task} Your receipt type is REVIEW_B.` });
+      markReviewDispatch(cwd, review.change, key);
+      return;
+    }
+    if (kind === "consolidate") {
+      runtime.spawn({ name: "jd-consolidator", task: `${context} Read both judge receipts, reconcile findings, and send REVIEW_CONSOLIDATED followed by REVIEW_FINAL. The final receipt must include verdict PASS only after verifying the current tree and tests; otherwise include blockingFindings and verdict FAIL. CorrelationId: ${key}.` });
+      markReviewDispatch(cwd, review.change, key);
+      return;
+    }
+    runtime.spawn({
+      name: "jd-fix-agent",
+      task: `${context} Read REVIEW_CONSOLIDATED, fix every confirmed blocking finding, run focused tests, and send a FIX_RECEIPT with correlationId ${key}.`,
+    });
+    markReviewDispatch(cwd, review.change, key);
+  }
 
   // Publish orchestrator on globalThis for cross-extension integration
   const g = globalThis as any;
@@ -309,6 +349,39 @@ export default function (pi: ExtensionAPI) {
         saveState(cwd, state);
       }
     },
+    notifyMailbox: (message: { id?: string; body?: string }) => {
+      try {
+        const receipt = JSON.parse(message.body || "") as ReviewReceipt;
+        if (!receipt.change) return "ignore";
+        // Reload on every receipt: this makes a new Pi process resume the
+        // durable coordinator rather than starting a second review loop.
+        const result = processReviewReceipt(cwd, { ...receipt, id: receipt.receiptId || receipt.id || message.id });
+        reviewStates.set(receipt.change, result.state);
+        dispatchReviewAction(result.state, result.action, result.dispatchIds[0]);
+        return result.action;
+      } catch {
+        return "ignore";
+      }
+    },
+    recoverReviews: () => {
+      const changesDir = join(cwd, "openspec", "changes");
+      if (!existsSync(changesDir)) return;
+      for (const entry of readdirSync(changesDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const review = loadReviewState(cwd, entry.name);
+        reviewStates.set(entry.name, review);
+        for (const key of review.dispatchIds) {
+          if (hasPendingReviewDispatch(cwd, review.change, key)) {
+            const kind = key.split(":").pop();
+            const action = kind === "judges" ? "dispatch-judges" : kind === "consolidate" ? "consolidate" : "dispatch-fix";
+            dispatchReviewAction(review, action, key);
+          }
+        }
+        if (review.status === "RUNNING" && (!review.judgeA || !review.judgeB)) dispatchReviewAction(review, "dispatch-judges");
+        if (review.status === "BLOCKED" && review.round < review.maxRounds) dispatchReviewAction(review, "dispatch-fix");
+      }
+    },
+    getReviewState: (change: string) => reviewStates.get(change),
     getState: () => state,
   };
 

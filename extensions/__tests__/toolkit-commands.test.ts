@@ -99,7 +99,7 @@ describe("scanCommandDirs", () => {
 });
 
 describe("mapTools — legacy commander entries", () => {
-	it("should map pre-unification commander tool names to commander_task", async () => {
+	it("preserves current MCP commander tool names", async () => {
 		const { mapTools } = await import("../toolkit-commands.ts");
 
 		const legacyNames = [
@@ -110,7 +110,7 @@ describe("mapTools — legacy commander entries", () => {
 		];
 
 		const result = mapTools(legacyNames);
-		expect(result).toEqual(["commander_task"]);
+		expect(result).toEqual(legacyNames);
 	});
 
 	it("should map SlashCommand to skill", async () => {

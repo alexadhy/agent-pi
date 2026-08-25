@@ -25,8 +25,8 @@ function createPiMock() {
 		registerTool(def: any) {
 			tools.push(def);
 		},
-		registerCommand(def: any) {
-			commands.push(def);
+		registerCommand(nameOrDef: any, maybeDef?: any) {
+			commands.push(maybeDef === undefined ? nameOrDef : { name: nameOrDef, ...maybeDef });
 		},
 		on(event: string, handler: any) {
 			handlers[event] = handler;
