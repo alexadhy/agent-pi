@@ -3,21 +3,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, renameSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-
-// ── Types ────────────────────────────────────────────────────────────
-
-interface MailMessage {
-  id: string;
-  from: string;
-  to: string;
-  body: string;
-  message_type: string;
-  createdAt: string;
-  read: boolean;
-}
+import { parseMailMessage, type MailMessage } from "./lib/mailbox-types.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────
 
@@ -76,8 +65,8 @@ function getInbox(agentName: string, markRead?: boolean): MailMessage[] {
 
   for (const file of files) {
     try {
-      const msg = JSON.parse(readFileSync(join(inboxDir, file), "utf-8")) as MailMessage;
-      messages.push(msg);
+      const msg = parseMailMessage(JSON.parse(readFileSync(join(inboxDir, file), "utf-8")));
+      if (msg) messages.push(msg);
     } catch {}
   }
 
@@ -108,7 +97,6 @@ function cleanupMailbox(agentName: string, olderThanDays: number): number {
   for (const file of readdirSync(inboxDir)) {
     if (!file.endsWith(".json")) continue;
     try {
-      const stat = readdirSync(inboxDir); // just for the path
       const filePath = join(inboxDir, file);
       const msg = JSON.parse(readFileSync(filePath, "utf-8"));
       if (new Date(msg.createdAt).getTime() < cutoff) {
@@ -142,10 +130,15 @@ export default function (pi: ExtensionAPI) {
         String(params.message_type || "direct"),
       );
 
-      // Notify orchestrator if available
+      // Notify orchestrator if available. Mailbox delivery must not fail just
+      // because a diagnostic consumer rejects malformed or unrelated mail.
       const orch = (globalThis as any).__piOrchestrator;
       if (orch?.notifyMailbox) {
-        orch.notifyMailbox(msg);
+        try {
+          orch.notifyMailbox(msg);
+        } catch (error) {
+          console.warn(`[mailbox] Orchestrator notification failed for ${msg.id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
 
       return {
@@ -207,8 +200,6 @@ export default function (pi: ExtensionAPI) {
     ensureDir(getMailboxDir());
     ensureDir(getSentDir());
 
-    // Publish unread count to globalThis for other extensions
-    (globalThis as any).__piMailboxUnread = {};
   });
 
   pi.registerCommand("mailbox-status", {

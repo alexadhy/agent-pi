@@ -1,6 +1,29 @@
 // ABOUTME: System prompt templates injected by mode-cycler for each operational mode.
 // ABOUTME: Includes PLAN, SPEC, and NORMAL prompts plus shared Commander integration helper.
 
+/** Add the resolved change name to prompts sent to implementation agents. */
+export function buildOpenSpecChangeContext(change: string | null): string {
+	if (!change) {
+		return "Resolve the active OpenSpec change with `sdd_status` before implementing or sending receipts.";
+	}
+	return `The active OpenSpec change is \`${change}\`. Use this exact change for all artifacts, implementation work, and mailbox receipts.`;
+}
+
+/** Exact receipt loop shared by SDD, TEAM, CHAIN, and spawned agents. */
+export const REVIEW_RECEIPT_PROTOCOL = `
+## Mandatory Review Receipt Loop
+
+Follow this exact pattern for every implementation task:
+
+1. Implementor sends exactly one \`IMPLEMENTATION_RECEIPT\` via \`mailbox_send\` after verified implementation.
+2. Coordinator dispatches independent \`jd-judge-a\` and \`jd-judge-b\` subagents.
+3. Wait for both \`REVIEW_A\` and \`REVIEW_B\` receipts before consolidation.
+4. Consolidator sends \`REVIEW_CONSOLIDATED\` and then structured \`REVIEW_FINAL\`.
+5. If blocking findings exist, dispatch the fix agent; it sends \`FIX_RECEIPT\`, then repeat from step 2.
+6. Mark complete only on durable \`REVIEW_FINAL\` with \`verdict: PASS\` and zero blocking findings.
+
+Every receipt MUST be sent with \`mailbox_send\` as a JSON object in \`body\` with exactly these keys: \`type\`, \`change\`, \`receiptId\`, \`correlationId\`, \`verdict\`, \`blockingFindings\`, and \`body\`. Use the exact active change name, a unique \`receiptId\`, the exact coordinator \`correlationId\`, and exact test evidence in the nested body. Never claim completion without the receipt. Never spawn judges manually when the coordinator is available.`;
+
 /** Shared Orchestrator integration section appended to mode prompts. */
 export function buildCommanderSection(): string {
 	return `\n## Orchestrator Integration
@@ -11,7 +34,7 @@ Use the orchestrator tools for dashboard visibility:
 ### Mailbox Protocol
 - Check your inbox periodically: \`mailbox_inbox { agent_name: "<your-name>" }\`
 - Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere`;
+- Warm, professional, collaborative tone — no emojis anywhere${REVIEW_RECEIPT_PROTOCOL}`;
 }
 
 /** Options for building the NORMAL mode prompt. */
@@ -425,7 +448,7 @@ proposal → specs → design → tasks → apply → verify → sync → archiv
 
 Drive each phase through the engine, never by guessing:
 
-1. **Resolve the change** — \`sdd_status\` returns the active change, artifact readiness, and next phase. If ambiguous, ask the user.
+1. **Resolve the change** — \`sdd_status\` returns the active change, artifact readiness, and next phase. If ambiguous, ask the user. Pass the resolved change name explicitly to every implementation-agent task and every receipt; never make an agent infer it.
 2. **Read native readiness** — \`openspec status --change <name> --json\` gives the artifact graph: which artifact is \`ready\`, which are \`blocked\` on missing deps, plus \`applyRequires\` and \`actionContext\` (allowed edit roots).
 3. **Write the next ready artifact** — \`openspec instructions <artifact> --change <name> --json\` returns the authoritative \`instruction\`, \`template\`, \`dependencies\`, and \`unlocks\`. Fill the template into the resolved output path.
 4. **Continue** until \`tasks.md\` is written and \`applyRequires\` is satisfied.
@@ -452,6 +475,8 @@ The web questions viewer is the collaborative surface: questions shown in the br
 ## Strict TDD
 
 If \`openspec/config.yaml\` declares \`strict_tdd: true\` and a \`test_command\`, the \`apply\` and \`verify\` phases must record RED → GREEN → TRIANGULATE → REFACTOR evidence. Forward the test runner command to the apply/verify dispatch.
+
+${REVIEW_RECEIPT_PROTOCOL}
 
 ## Result Contract
 

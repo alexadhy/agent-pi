@@ -3,6 +3,24 @@
 
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 
+const STATUS_BG: Record<string, string> = {
+  running: "\x1b[48;2;26;58;92m",
+  done: "\x1b[48;2;35;50;55m",
+  error: "\x1b[48;2;70;35;35m",
+};
+const RESET_BG = "\x1b[49m";
+const WHITE_BOLD = "\x1b[1;97m";
+const RESET_ALL = "\x1b[0m";
+
+/** Apply the shared dark status background used by agent widgets. */
+export function statusBackground(
+  text: string,
+  status: string,
+): string {
+  const background = STATUS_BG[status] || STATUS_BG.running;
+  return `${background}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
+}
+
 /** Pad a string with spaces to reach the target visible width, truncating if too long. */
 export function padRight(s: string, width: number): string {
   const vis = visibleWidth(s);

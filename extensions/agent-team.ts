@@ -24,6 +24,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+  buildOpenSpecChangeContext,
+  buildCommanderSection,
+} from "./lib/mode-prompts.ts";
+import { fetchNativeStatus } from "./lib/openspec-native.ts";
+import {
   Text,
   type AutocompleteItem,
   visibleWidth,
@@ -55,11 +60,12 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import {
+  displayName,
   loadAgentModelsConfig,
   loadToolkitModelsConfig,
-  resolveAgentModelString,
+  scanAgentDefs,
   scanToolkitAgentDefs,
-  type AgentModelsConfig,
+  type AgentDef,
 } from "./lib/agent-defs.ts";
 import {
   resolveToolkitWorkerModel,
@@ -84,15 +90,6 @@ import { renderSubagentWidget } from "./lib/subagent-render.ts";
 
 // ── Types ────────────────────────────────────────
 
-interface AgentDef {
-  name: string;
-  description: string;
-  tools: string;
-  model: string; // full provider/model ID, empty = inherit parent
-  systemPrompt: string;
-  file: string;
-}
-
 interface AgentState {
   def: AgentDef;
   status: "idle" | "running" | "done" | "error";
@@ -112,15 +109,6 @@ interface AgentState {
   summary?: string; // short summary shown in widget
   summaryLines?: string[]; // up to 2 recent CLI/output lines for richer widget preview
   proc?: any; // ChildProcess ref for escape-cancel
-}
-
-// ── Display Name Helper ──────────────────────────
-
-function displayName(name: string): string {
-  return name
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
 }
 
 function abbreviateAgentName(name: string): string {
@@ -152,94 +140,6 @@ function parseTeamsYaml(raw: string): Record<string, string[]> {
     }
   }
   return teams;
-}
-
-// ── Frontmatter Parser ───────────────────────────
-
-function parseAgentFile(
-  filePath: string,
-  modelsConfig?: AgentModelsConfig,
-): AgentDef | null {
-  try {
-    const raw = readFileSync(filePath, "utf-8");
-    const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (!match) return null;
-
-    const frontmatter: Record<string, string> = {};
-    for (const line of match[1].split("\n")) {
-      const idx = line.indexOf(":");
-      if (idx > 0) {
-        frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-      }
-    }
-
-    if (!frontmatter.name) return null;
-
-    // Model resolution: models.json > frontmatter fallback > empty
-    let model = "";
-    if (modelsConfig) {
-      const key = frontmatter.name.toLowerCase();
-      const entry = modelsConfig.agents[key];
-      if (entry) {
-        model = resolveAgentModelString(frontmatter.name, modelsConfig);
-      }
-    }
-    if (!model && frontmatter.model) {
-      model = frontmatter.model;
-    }
-
-    return {
-      name: frontmatter.name,
-      description: frontmatter.description || "",
-      tools: frontmatter.tools || "read,grep,find,ls",
-      model,
-      systemPrompt: match[2].trim(),
-      file: filePath,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function scanAgentDirs(
-  cwd: string,
-  extProjectDir?: string,
-  modelsConfig?: AgentModelsConfig,
-): AgentDef[] {
-  const dirs = [
-    join(cwd, "agents"),
-    join(cwd, ".claude", "agents"),
-    join(cwd, ".pi", "agents"),
-    ...(extProjectDir
-      ? [join(extProjectDir, ".pi", "agents"), join(extProjectDir, "agents")]
-      : []),
-  ];
-
-  const agents: AgentDef[] = [];
-  const seen = new Set<string>();
-
-  for (const dir of dirs) {
-    if (!existsSync(dir)) continue;
-    try {
-      const scan = (d: string) => {
-        for (const file of readdirSync(d, { withFileTypes: true })) {
-          const fullPath = resolve(d, file.name);
-          if (file.isDirectory()) {
-            scan(fullPath);
-          } else if (file.name.endsWith(".md")) {
-            const def = parseAgentFile(fullPath, modelsConfig);
-            if (def && !seen.has(def.name.toLowerCase())) {
-              seen.add(def.name.toLowerCase());
-              agents.push(def);
-            }
-          }
-        }
-      };
-      scan(dir);
-    } catch {}
-  }
-
-  return agents;
 }
 
 // ── Extension ────────────────────────────────────
@@ -282,7 +182,9 @@ export default function (pi: ExtensionAPI) {
     // Load standard + toolkit model config, then scan agent .md files
     const modelsConfig = loadAgentModelsConfig(cwd, extProjectDir);
     const toolkitModelsConfig = loadToolkitModelsConfig(cwd, extProjectDir);
-    const standardAgentDefs = scanAgentDirs(cwd, extProjectDir, modelsConfig);
+    const standardAgentDefs = Array.from(
+      scanAgentDefs(cwd, extProjectDir, modelsConfig).values(),
+    );
     const toolkitAgentDefs = Array.from(
       scanToolkitAgentDefs(cwd, extProjectDir, toolkitModelsConfig).values(),
     );
@@ -570,6 +472,10 @@ export default function (pi: ExtensionAPI) {
     let tools = state.def.tools;
 
     // Build system prompt
+    const activeChange = fetchNativeStatus(ctx.cwd)?.changeName || null;
+    const scopedTask = activeChange
+      ? `${buildOpenSpecChangeContext(activeChange)}\n\n${task}`
+      : task;
     let systemPrompt = state.def.systemPrompt;
 
     const args = [
@@ -600,7 +506,7 @@ export default function (pi: ExtensionAPI) {
       args.push("-c");
     }
 
-    args.push(task);
+    args.push(scopedTask);
 
     const textChunks: string[] = [];
     const canonicalLower = canonicalName.toLowerCase();
@@ -1357,18 +1263,8 @@ export default function (pi: ExtensionAPI) {
       .map((s) => displayName(s.def.name))
       .join(", ");
 
-    const commanderSection = `
-
-## Orchestrator Integration
-Use the orchestrator tools for dashboard visibility:
-- \`show_file { file_path: <path> }\` — display key files in the browser viewer
-- \`orch_task_add/list/update\` — track tasks in the orchestrator dashboard
-- \`mailbox_send\` — send status updates to other agents
-
-### Mailbox Protocol
-- Check your inbox periodically: \`mailbox_inbox { agent_name: "coordinator" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere`
+    const commanderSection = `${buildCommanderSection()}
+- \`show_file { file_path: <path> }\` — display key files in the browser viewer`
 
     // Check if scout is on the team for delegation instructions
     const hasScout = agentStates.has("scout");
@@ -1405,6 +1301,7 @@ The scout runs in the background. When it finishes, its findings are returned. T
     return {
       systemPrompt: `You coordinate specialist agents and delegate context-gathering to them.
 You dispatch specialist agents for investigation and can work directly for responses and edits.
+${buildOpenSpecChangeContext(fetchNativeStatus(_ctx.cwd)?.changeName || null)}
 ## OpenSpec SDD (mandatory for non-trivial work)
 
 Before dispatching any implementation agents, resolve or create the OpenSpec change:

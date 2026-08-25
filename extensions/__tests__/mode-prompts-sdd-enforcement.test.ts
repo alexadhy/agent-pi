@@ -2,7 +2,18 @@
 // by default (no ad-hoc opt-out), and that a shared guard is present.
 
 import { describe, it, expect } from "vitest";
-import { PLAN_PROMPT, SPEC_PROMPT, SDD_PROMPT, PIPELINE_PROMPT } from "../lib/mode-prompts.ts";
+import { PLAN_PROMPT, SPEC_PROMPT, SDD_PROMPT, PIPELINE_PROMPT, buildOpenSpecChangeContext } from "../lib/mode-prompts.ts";
+
+describe("implementation prompts preserve OpenSpec change identity", () => {
+	it("renders the exact change name for spawned agents", () => {
+		expect(buildOpenSpecChangeContext("fix-mailbox")).toContain("fix-mailbox");
+		expect(buildOpenSpecChangeContext("fix-mailbox")).toContain("mailbox receipts");
+	});
+
+	it("requires resolution when no change is available", () => {
+		expect(buildOpenSpecChangeContext(null)).toContain("sdd_status");
+	});
+});
 
 describe("PLAN_PROMPT enforces OpenSpec by default", () => {
 	it("references the native openspec engine", () => {

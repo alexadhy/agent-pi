@@ -48,6 +48,7 @@ import {
 import { join, resolve, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { buildCommanderSection } from "./lib/mode-prompts.ts";
 import { outputLine, outputBox, type BarColor } from "./lib/output-box.ts";
 import {
   renderVerticalTimeline,
@@ -57,9 +58,10 @@ import {
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import {
+  displayName,
   loadAgentModelsConfig,
-  resolveAgentModelString,
-  type AgentModelsConfig,
+  scanAgentDefs,
+  type AgentDef,
 } from "./lib/agent-defs.ts";
 import {
   parsePipelineYaml,
@@ -69,14 +71,6 @@ import {
 } from "./lib/parse-pipeline-yaml.ts";
 
 // ── Types ────────────────────────────────────────
-
-interface AgentDef {
-  name: string;
-  description: string;
-  tools: string;
-  model: string; // full provider/model ID, empty = use default
-  systemPrompt: string;
-}
 
 interface AgentState {
   role: string;
@@ -97,94 +91,6 @@ interface PhaseState {
   status: PhaseStatus;
   summary: string;
   agents: AgentState[];
-}
-
-// ── Display Name Helper ──────────────────────────
-
-function displayName(name: string): string {
-  return name
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
-// ── Frontmatter Parser (reused from agent-team) ──
-
-function parseAgentFile(
-  filePath: string,
-  modelsConfig?: AgentModelsConfig,
-): AgentDef | null {
-  try {
-    const raw = readFileSync(filePath, "utf-8");
-    const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (!match) return null;
-
-    const frontmatter: Record<string, string> = {};
-    for (const line of match[1].split("\n")) {
-      const idx = line.indexOf(":");
-      if (idx > 0) {
-        frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-      }
-    }
-
-    if (!frontmatter.name) return null;
-
-    // Model resolution: models.json > frontmatter fallback > empty
-    let model = "";
-    if (modelsConfig) {
-      const key = frontmatter.name.toLowerCase();
-      const entry = modelsConfig.agents[key];
-      if (entry) {
-        model = resolveAgentModelString(frontmatter.name, modelsConfig);
-      }
-    }
-    if (!model && frontmatter.model) {
-      model = frontmatter.model;
-    }
-
-    return {
-      name: frontmatter.name,
-      description: frontmatter.description || "",
-      tools: frontmatter.tools || "read,grep,find,ls",
-      model,
-      systemPrompt: match[2].trim(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function scanAgentDirs(
-  cwd: string,
-  extProjectDir?: string,
-  modelsConfig?: AgentModelsConfig,
-): Map<string, AgentDef> {
-  const dirs = [
-    join(cwd, "agents"),
-    join(cwd, ".claude", "agents"),
-    join(cwd, ".pi", "agents"),
-    ...(extProjectDir
-      ? [join(extProjectDir, ".pi", "agents"), join(extProjectDir, "agents")]
-      : []),
-  ];
-
-  const agents = new Map<string, AgentDef>();
-
-  for (const dir of dirs) {
-    if (!existsSync(dir)) continue;
-    try {
-      for (const file of readdirSync(dir)) {
-        if (!file.endsWith(".md")) continue;
-        const fullPath = resolve(dir, file);
-        const def = parseAgentFile(fullPath, modelsConfig);
-        if (def && !agents.has(def.name.toLowerCase())) {
-          agents.set(def.name.toLowerCase(), def);
-        }
-      }
-    } catch {}
-  }
-
-  return agents;
 }
 
 // ── Context Helpers ──────────────────────────────
@@ -249,7 +155,7 @@ export default function (pi: ExtensionAPI) {
 
     // Load model config from .pi/agents/models.json, then scan agent .md files
     const modelsConfig = loadAgentModelsConfig(cwd, extProjectDir);
-    allAgents = scanAgentDirs(cwd, extProjectDir, modelsConfig);
+    allAgents = scanAgentDefs(cwd, extProjectDir, modelsConfig);
 
     // Look for config in cwd first, fall back to extension's own project dir
     let configPath = join(cwd, ".pi", "agents", "pipeline-team.yaml");
@@ -1332,19 +1238,8 @@ After reviewing the output:
 - Max review loops: ${activeConfig.review_max_loops}`;
     }
 
-    const commanderSection = `
-
-## Orchestrator Integration
-Use the orchestrator tools for dashboard visibility:
-- \`show_file { file_path: <path> }\` — display key files in the browser viewer
-- \`orch_task_add/list/update\` — track tasks in the orchestrator dashboard
-- \`mailbox_send\` — send status updates to other agents
-
-### Mailbox Protocol
-- Check your inbox periodically: \`mailbox_inbox { agent_name: "<your-name>" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere
-- Use show_file to display pipeline plans, phase results, or review reports`;
+      const commanderSection = `${buildCommanderSection()}
+- \`show_file { file_path: <path> }\` — display pipeline plans, phase results, or review reports`;
 
     return {
       systemPrompt: `You are orchestrating a pipeline called "${activeConfig.name}".

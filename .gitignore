@@ -34,3 +34,6 @@ commands/private/
 .stakpak/session*
 # Local Pi runtime state
 .atl/
+
+# Generated review ledger
+extensions/openspec/.review-ledger.sqlite

@@ -8,6 +8,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 
 import { join, dirname } from "node:path";
 import { outputLine } from "./lib/output-box.ts";
 import { generateDashboardHTML } from "./lib/orchestrator-dashboard-html.ts";
+import { validateMailboxReceipt } from "./lib/mailbox-types.ts";
+import "./lib/runtime-contract.ts";
 import {
   registerActiveViewer,
   clearActiveViewer,
@@ -19,7 +21,9 @@ import {
   hasPendingReviewDispatch,
   loadReviewState,
   markReviewDispatch,
+  saveReviewState,
   processReviewReceipt,
+  validateReviewReceipt,
   type ReviewReceipt,
   type ReviewState,
 } from "./lib/review-coordinator.ts";
@@ -210,10 +214,17 @@ function registerAgent(state: OrchestratorState, name: string, role: string): Ag
 let dashboardServer: Server | null = null;
 let dashboardPort = 0;
 
+const DEFAULT_RECONCILIATION_INTERVAL_MS = 5_000;
+const DEFAULT_ROUND_TIMEOUT_MS = 15 * 60_000;
+
+function configuredMilliseconds(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function getDashboardData(state: OrchestratorState) {
   // Merge with tasks extension state if available
-  const g = globalThis as any;
-  const taskList = g.__piTaskList;
+  const taskList = globalThis.__piTaskList;
 
   return {
     groups: state.groups,
@@ -289,27 +300,29 @@ export default function (pi: ExtensionAPI) {
   let state: OrchestratorState = { tasks: [], groups: [], nextTaskId: 1, nextGroupId: 1, agents: [] };
   let cwd = process.cwd();
   let dashboardOpen = false;
+  let reconciliationTimer: ReturnType<typeof setInterval> | undefined;
   const reviewStates = new Map<string, ReviewState>();
+  const recoveredRounds = new Set<string>();
 
-  function dispatchReviewAction(review: ReviewState, action: string, dispatchId?: string): void {
-    const runtime = (globalThis as any).__piSubagentRuntime;
+  function dispatchReviewAction(review: ReviewState, action: string, dispatchId?: string, force = false): void {
+    const runtime = globalThis.__piSubagentRuntime;
     if (!runtime?.spawn) return;
     const kind = action === "dispatch-judges" ? "judges" : action === "consolidate" ? "consolidate" : action === "dispatch-fix" ? "fix" : "";
     if (!kind) return;
     const key = dispatchId || dispatchKey(review.change, review.round, kind);
-    if (!hasPendingReviewDispatch(cwd, review.change, key)) return;
+    if (!force && !hasPendingReviewDispatch(cwd, review.change, key)) return;
 
     const context = `OpenSpec change: ${review.change}. Review round ${review.round}/${review.maxRounds}. ` +
       "Use the mailbox receipt contract and include the exact correlationId in your receipt.";
     if (kind === "judges") {
-      const task = `${context} Read the implementation and adversarially review it. Send a JSON REVIEW receipt with correlationId ${key}.`;
-      runtime.spawn({ name: "jd-judge-a", task: `${task} Your receipt type is REVIEW_A.` });
-      runtime.spawn({ name: "jd-judge-b", task: `${task} Your receipt type is REVIEW_B.` });
+      const task = `${context} Audit the entire implementation adversarially, assume it may be incorrect, and inspect the proposal, specs, design, tasks, affected source, integrations, and tests. Report concrete gaps, regressions, edge cases, and test gaps with evidence before considering PASS. Send the exact structured mailbox receipt required by your agent definition with correlationId ${key}.`;
+      runtime.spawn({ name: "jd-judge-a", task: `${task} Review independently as judge A. Your receipt type is REVIEW_A.` });
+      runtime.spawn({ name: "jd-judge-b", task: `${task} Review independently as judge B from a different angle. Your receipt type is REVIEW_B.` });
       markReviewDispatch(cwd, review.change, key);
       return;
     }
     if (kind === "consolidate") {
-      runtime.spawn({ name: "jd-consolidator", task: `${context} Read both judge receipts, reconcile findings, and send REVIEW_CONSOLIDATED followed by REVIEW_FINAL. The final receipt must include verdict PASS only after verifying the current tree and tests; otherwise include blockingFindings and verdict FAIL. CorrelationId: ${key}.` });
+      runtime.spawn({ name: "jd-consolidator", task: `${context} Read both judge receipts and audit the entire current implementation again. Reconcile only evidence-backed findings, verify fixes and tests, and send the exact structured REVIEW_CONSOLIDATED followed by REVIEW_FINAL receipts. The final receipt must include verdict PASS only after verifying the current tree and tests and confirming zero blocking findings; otherwise include every confirmed blocker and verdict FAIL. CorrelationId: ${key}.` });
       markReviewDispatch(cwd, review.change, key);
       return;
     }
@@ -320,9 +333,40 @@ export default function (pi: ExtensionAPI) {
     markReviewDispatch(cwd, review.change, key);
   }
 
+  function recoverReviews(): void {
+    const changesDir = join(cwd, "openspec", "changes");
+    if (!existsSync(changesDir)) return;
+    const timeout = configuredMilliseconds("PI_ORCHESTRATOR_ROUND_TIMEOUT_MS", DEFAULT_ROUND_TIMEOUT_MS);
+    for (const entry of readdirSync(changesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const review = loadReviewState(cwd, entry.name);
+      reviewStates.set(entry.name, review);
+      for (const key of review.dispatchIds) {
+        if (hasPendingReviewDispatch(cwd, review.change, key)) {
+          const kind = key.split(":").pop();
+          const action = kind === "judges" ? "dispatch-judges" : kind === "consolidate" ? "consolidate" : "dispatch-fix";
+          dispatchReviewAction(review, action, key);
+        }
+      }
+      if (Date.now() - Date.parse(review.updatedAt) < timeout) continue;
+      const recoveryKey = `${review.change}:${review.round}:${review.status}`;
+      if (recoveredRounds.has(recoveryKey)) continue;
+      if (review.status === "RUNNING" && review.round > 0) {
+        review.judgeA = false;
+        review.judgeB = false;
+        review.updatedAt = new Date().toISOString();
+        saveReviewState(cwd, review);
+        recoveredRounds.add(recoveryKey);
+        dispatchReviewAction(review, "dispatch-judges", undefined, true);
+      } else if (review.status === "BLOCKED" && review.round < review.maxRounds) {
+        recoveredRounds.add(recoveryKey);
+        dispatchReviewAction(review, "dispatch-fix", undefined, true);
+      }
+    }
+  }
+
   // Publish orchestrator on globalThis for cross-extension integration
-  const g = globalThis as any;
-  g.__piOrchestrator = {
+  globalThis.__piOrchestrator = {
     addTask: (text: string, groupId?: number) => {
       const group = groupId
         ? state.groups.find(g => g.id === groupId)
@@ -350,37 +394,38 @@ export default function (pi: ExtensionAPI) {
       }
     },
     notifyMailbox: (message: { id?: string; body?: string }) => {
+      const source = message.id || "unknown-message";
+      let receipt: ReviewReceipt;
       try {
-        const receipt = JSON.parse(message.body || "") as ReviewReceipt;
-        if (!receipt.change) return "ignore";
+        const parsed: unknown = JSON.parse(message.body || "");
+        const transportValidation = validateMailboxReceipt(parsed);
+        if (!transportValidation.valid) {
+          console.warn(`[orch] Ignoring malformed receipt ${source}: ${transportValidation.reason}`);
+          return "ignore";
+        }
+        receipt = parsed as ReviewReceipt;
+      } catch (error) {
+        console.warn(`[orch] Ignoring malformed receipt ${source}: ${error instanceof Error ? error.message : "invalid JSON"}`);
+        return "ignore";
+      }
+      const validation = validateReviewReceipt(receipt);
+      if (!validation.valid) {
+        console.warn(`[orch] Ignoring unexpected receipt ${source}: ${validation.reason}`);
+        return "ignore";
+      }
+      try {
         // Reload on every receipt: this makes a new Pi process resume the
         // durable coordinator rather than starting a second review loop.
         const result = processReviewReceipt(cwd, { ...receipt, id: receipt.receiptId || receipt.id || message.id });
         reviewStates.set(receipt.change, result.state);
         dispatchReviewAction(result.state, result.action, result.dispatchIds[0]);
         return result.action;
-      } catch {
+      } catch (error) {
+        console.warn(`[orch] Failed to process receipt ${source}: ${error instanceof Error ? error.message : String(error)}`);
         return "ignore";
       }
     },
-    recoverReviews: () => {
-      const changesDir = join(cwd, "openspec", "changes");
-      if (!existsSync(changesDir)) return;
-      for (const entry of readdirSync(changesDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const review = loadReviewState(cwd, entry.name);
-        reviewStates.set(entry.name, review);
-        for (const key of review.dispatchIds) {
-          if (hasPendingReviewDispatch(cwd, review.change, key)) {
-            const kind = key.split(":").pop();
-            const action = kind === "judges" ? "dispatch-judges" : kind === "consolidate" ? "consolidate" : "dispatch-fix";
-            dispatchReviewAction(review, action, key);
-          }
-        }
-        if (review.status === "RUNNING" && (!review.judgeA || !review.judgeB)) dispatchReviewAction(review, "dispatch-judges");
-        if (review.status === "BLOCKED" && review.round < review.maxRounds) dispatchReviewAction(review, "dispatch-fix");
-      }
-    },
+    recoverReviews: () => recoverReviews(),
     getReviewState: (change: string) => reviewStates.get(change),
     getState: () => state,
   };
@@ -611,10 +656,9 @@ Examples:
   pi.on("session_start", async (_event, ctx) => {
     cwd = ctx.cwd;
     state = loadState(cwd);
-    g.__piOrchestratorState = state;
 
     // Merge with existing tasks from tasks.ts if we have a group-less task list
-    const taskList = g.__piTaskList;
+    const taskList = globalThis.__piTaskList;
     if (taskList?.tasks && state.groups.length === 0) {
       // Auto-create a default group when tasks exist but no groups
       // (handles migration from plain tasks.ts usage)
@@ -629,13 +673,21 @@ Examples:
       const count = state.groups.length;
       ctx.ui.setStatus("orch", count > 0 ? `${count} groups` : undefined);
     }
+    recoverReviews();
+    if (reconciliationTimer) clearInterval(reconciliationTimer);
+    reconciliationTimer = setInterval(
+      recoverReviews,
+      configuredMilliseconds("PI_ORCHESTRATOR_RECONCILIATION_INTERVAL_MS", DEFAULT_RECONCILIATION_INTERVAL_MS),
+    );
+    reconciliationTimer.unref?.();
   });
 
   pi.on("session_shutdown", async () => {
     saveState(cwd, state);
     stopDashboard();
-    g.__piOrchestrator = undefined;
-    g.__piOrchestratorState = undefined;
+    if (reconciliationTimer) clearInterval(reconciliationTimer);
+    reconciliationTimer = undefined;
+    globalThis.__piOrchestrator = undefined;
   });
 
   pi.on("session_before_switch", async () => {

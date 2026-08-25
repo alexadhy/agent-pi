@@ -20,6 +20,7 @@ import { join, basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { applyExtensionDefaults } from "./lib/themeMap.ts";
+import { displayName } from "./lib/agent-defs.ts";
 
 interface AgentDef {
   name: string;
@@ -61,13 +62,6 @@ function scanAgents(dir: string, source: string): AgentDef[] {
     }
   } catch {}
   return agents;
-}
-
-function displayName(name: string): string {
-  return name
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
 }
 
 export default function (pi: ExtensionAPI) {

@@ -26,6 +26,12 @@ import { applyExtensionDefaults } from "./lib/themeMap.ts";
 import { renderSubagentWidget, parseSubName } from "./lib/subagent-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { cleanOldSessionFiles } from "./lib/subagent-cleanup.ts";
+import {
+  createJsonlParser,
+  killGracefully,
+  startHeartbeat,
+} from "./lib/agent-process.ts";
+import { statusBackground } from "./lib/ui-helpers.ts";
 
 import {
   scanAgentDefs,
@@ -44,36 +50,6 @@ import {
 } from "./lib/toolkit-cli.ts";
 
 // ── Commander availability (removed — Commander MCP was never available) ──
-
-// ── Graceful kill helper ─────────────────────────────────────────────────────
-
-/** Send SIGTERM and wait up to `timeoutMs` for exit; escalate to SIGKILL. */
-function killGracefully(proc: any, timeoutMs = 3000): Promise<void> {
-  return new Promise((resolve) => {
-    if (!proc || proc.exitCode !== null) {
-      resolve();
-      return;
-    }
-    let settled = false;
-    const onExit = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve();
-    };
-    proc.once("exit", onExit);
-    proc.kill("SIGTERM");
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      proc.removeListener("exit", onExit);
-      try {
-        proc.kill("SIGKILL");
-      } catch {}
-      resolve();
-    }, timeoutMs);
-  });
-}
 
 /** Default timeout per agent role (ms). Prevents zombie subagents. */
 const ROLE_TIMEOUT_MS: Record<string, number> = {
@@ -126,6 +102,20 @@ export function buildAgentSystemPromptArgs(agentPrompt?: string): string[] {
   ];
 }
 
+const REVIEW_AGENT_NAMES = new Set([
+  "jd-judge-a",
+  "jd-judge-b",
+  "jd-consolidator",
+]);
+
+/** Review workers must be able to emit their durable receipt through the mailbox. */
+export function ensureReviewMailboxTool(agentName: string, tools: string): string {
+  if (!REVIEW_AGENT_NAMES.has(agentName.toLowerCase())) return tools;
+  const configuredTools = tools.split(",").map((tool) => tool.trim()).filter(Boolean);
+  if (!configuredTools.includes("mailbox_send")) configuredTools.push("mailbox_send");
+  return configuredTools.join(",");
+}
+
 export default function (pi: ExtensionAPI) {
   const agents: Map<number, SubState> = new Map();
   let nextId = 1;
@@ -156,37 +146,22 @@ export default function (pi: ExtensionAPI) {
 
   // ── Widget rendering ──────────────────────────────────────────────────────
 
-  // ── Dark background colors for subagent status ───────────────────────────
-  // Standard dark shades that keep white text readable on any terminal.
-  const STATUS_BG: Record<string, string> = {
-    running: "\x1b[48;2;26;58;92m", // dark steel blue
-    done: "\x1b[48;2;35;50;55m", // dark teal-gray
-    error: "\x1b[48;2;70;35;35m", // dark muted red
-  };
-  const RESET_BG = "\x1b[49m";
-  const WHITE_BOLD = "\x1b[1;97m"; // bold bright white text
-  const RESET_ALL = "\x1b[0m";
-
   function registerWidget(state: SubState) {
     if (!widgetCtx) return;
     const key = `sub-${state.id}`;
     widgetCtx.ui.setWidget(key, (_tui: any, theme: any) => {
-      const bgFn = (text: string): string => {
-        const bg = STATUS_BG[state.status] || STATUS_BG.running;
-        return `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
-      };
-
-      const box = new Box(1, 1, bgFn);
+      const box = new Box(1, 1, (text: string): string =>
+        statusBackground(text, state.status),
+      );
       const content = new Text("", 0, 0);
       box.addChild(content);
       widgetBoxes.set(state.id, { invalidate: () => box.invalidate() });
 
       return {
         render(width: number): string[] {
-          box.setBgFn((text: string): string => {
-            const bg = STATUS_BG[state.status] || STATUS_BG.running;
-            return `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
-          });
+          box.setBgFn((text: string): string =>
+            statusBackground(text, state.status),
+          );
 
           const result = renderSubagentWidget(state, width, theme);
           content.setText(result.lines.join("\n"));
@@ -228,7 +203,6 @@ export default function (pi: ExtensionAPI) {
     state: SubState,
     prompt: string,
     ctx: any,
-    peerNames?: string[],
   ): Promise<void> {
     // Model resolution priority:
     // 1) Caller-specified override (state.model set by tool call)
@@ -251,10 +225,16 @@ export default function (pi: ExtensionAPI) {
     const memoryCycleExtPath = path.join(extDir, "memory-cycle.ts");
 
     // Tools: use agent definition tools if available, else default set
-    let tools = agentDef?.tools || "read,bash,grep,find,ls";
+    const tools = ensureReviewMailboxTool(
+      state.name,
+      agentDef?.tools || "read,bash,grep,find,ls",
+    );
+    const mailboxExtPath = path.join(extDir, "agent-mailbox.ts");
     const extensions = [
       "-e",
       tasksExtPath,
+      "-e",
+      mailboxExtPath,
       "-e",
       footerExtPath,
       "-e",
@@ -279,7 +259,7 @@ export default function (pi: ExtensionAPI) {
     return new Promise<void>((resolve) => {
       const startTime = Date.now();
       const isScout = (globalThis as any).__piScoutId === state.id;
-      const timer = setInterval(() => {
+      const stopHeartbeat = startHeartbeat(() => {
         state.elapsed = Date.now() - startTime;
         invalidateWidget(state.id);
         if (isScout) publishScoutStatus(state);
@@ -287,7 +267,7 @@ export default function (pi: ExtensionAPI) {
         if (orch && state.status === "running") {
           orch.updateAgentStatus(`SA-${state.id}-${state.name}`, "working", state.id);
         }
-      }, 1000);
+      });
 
       // ── Watchdog: kill agent if it exceeds maxDurationMs ──────────
       // Standby (warmup) spawns are exempt — they're short-lived by design.
@@ -309,7 +289,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const finish = (code: number | null) => {
-        clearInterval(timer);
+        stopHeartbeat();
         // Clear watchdog — agent exited normally before timeout
         if (state.watchdogTimer) {
           clearTimeout(state.watchdogTimer);
@@ -432,15 +412,10 @@ export default function (pi: ExtensionAPI) {
       );
 
       state.proc = proc;
-      let buffer = "";
+      const jsonl = createJsonlParser((line) => processLine(state, line));
 
       proc.stdout!.setEncoding("utf-8");
-      proc.stdout!.on("data", (chunk: string) => {
-        buffer += chunk;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) processLine(state, line);
-      });
+      proc.stdout!.on("data", (chunk: string) => jsonl.push(chunk));
 
       proc.stderr!.setEncoding("utf-8");
       proc.stderr!.on("data", (chunk: string) => {
@@ -451,7 +426,7 @@ export default function (pi: ExtensionAPI) {
       });
 
       proc.on("close", (code) => {
-        if (buffer.trim()) processLine(state, buffer);
+        jsonl.flush();
         finish(code);
       });
 
@@ -460,9 +435,7 @@ export default function (pi: ExtensionAPI) {
         finish(1);
       });
 
-      proc.on("exit", () => {
-        clearInterval(timer);
-      });
+      proc.on("exit", stopHeartbeat);
     });
   }
 
@@ -685,9 +658,6 @@ export default function (pi: ExtensionAPI) {
 
       // Commander task group creation removed — Commander MCP was never available on this machine
 
-      // Collect peer names for mailbox banter
-      const peerNames = states.map((s) => `SA-${s.id}-${s.name}`);
-
       // Register and spawn all agents
       for (const state of states) {
         agents.set(state.id, state);
@@ -695,10 +665,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       for (const state of states) {
-        const peers = peerNames.filter(
-          (n) => n !== `SA-${state.id}-${state.name}`,
-        );
-        spawnAgent(state, state.task, ctx, peers);
+        spawnAgent(state, state.task, ctx);
       }
 
       const ids = states.map((s) => `SA${s.id} (${s.name})`).join(", ");

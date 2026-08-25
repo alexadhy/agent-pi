@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SHARED_AGENT_COMMUNICATION_PROMPT,
   buildAgentSystemPromptArgs,
+  ensureReviewMailboxTool,
 } from "../subagent-widget.ts";
 
 const modes = ["TEAM", "CHAIN"] as const;
@@ -32,6 +33,12 @@ describe("shared agent communication prompt", () => {
       expect(args[1]).toBe(SHARED_AGENT_COMMUNICATION_PROMPT);
       expect(args).toContain(`${mode} ${role} instructions`);
     }
+  });
+
+  it("adds mailbox_send to review agents when their definition omits it", () => {
+    expect(ensureReviewMailboxTool("jd-judge-a", "read,grep,bash")).toBe("read,grep,bash,mailbox_send");
+    expect(ensureReviewMailboxTool("jd-consolidator", "read,mailbox_send")).toBe("read,mailbox_send");
+    expect(ensureReviewMailboxTool("builder", "read,write")).toBe("read,write");
   });
 
   it("contains actionable communication requirements", () => {

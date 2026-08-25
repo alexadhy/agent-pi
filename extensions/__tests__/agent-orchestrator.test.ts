@@ -5,7 +5,10 @@
  * and tool registration. Does NOT test the HTTP server or dashboard HTML.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // We import the extension and test its internal logic via tool execution
 import orchestratorExt from "../agent-orchestrator";
@@ -51,6 +54,7 @@ describe("agent-orchestrator", () => {
 	afterEach(() => {
 		delete (globalThis as any).__piOrchestrator;
 		delete (globalThis as any).__piOrchestratorState;
+		delete (globalThis as any).__piSubagentRuntime;
 	});
 
 	describe("tool registration", () => {
@@ -156,6 +160,56 @@ describe("agent-orchestrator", () => {
 
 			expect(result.content[0].text).toContain("Agent registered");
 			expect(result.content[0].text).toContain("scout-1");
+		});
+	});
+
+	describe("receipt diagnostics", () => {
+		it("ignores malformed and unexpected mailbox receipts with diagnostics", () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			const orch = (globalThis as any).__piOrchestrator;
+
+			expect(orch.notifyMailbox({ id: "bad-json", body: "{" })).toBe("ignore");
+			expect(orch.notifyMailbox({ id: "bad-type", body: JSON.stringify({ change: "demo", type: "NOPE" }) })).toBe("ignore");
+			expect(warn).toHaveBeenCalledTimes(2);
+			warn.mockRestore();
+		});
+	});
+
+	describe("runtime review loop", () => {
+		it("dispatches judges, fix, re-review, and completion without subprocesses", async () => {
+			const testCwd = mkdtempSync(join(tmpdir(), "orchestrator-review-"));
+			try {
+				await pi.getHandlers().session_start({}, { cwd: testCwd, hasUI: false });
+				const spawned: Array<{ name: string; task: string }> = [];
+			(globalThis as any).__piSubagentRuntime = {
+				spawn: vi.fn((request: { name: string; task: string }) => {
+					spawned.push(request);
+					return `mock-${spawned.length}`;
+				}),
+			};
+			const orch = (globalThis as any).__piOrchestrator;
+			const change = `runtime-loop-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			const send = (receipt: Record<string, unknown>) =>
+				orch.notifyMailbox({ id: String(receipt.receiptId), body: JSON.stringify({ change, ...receipt }) });
+
+			expect(send({ type: "IMPLEMENTATION_RECEIPT", receiptId: "impl" })).toBe("dispatch-judges");
+			expect(spawned.map((agent) => agent.name)).toEqual(["jd-judge-a", "jd-judge-b"]);
+			expect(send({ type: "REVIEW_A", receiptId: "a1", correlationId: "r1-a" })).toBe("ignore");
+			expect(send({ type: "REVIEW_B", receiptId: "b1", correlationId: "r1-b" })).toBe("consolidate");
+			expect(spawned.at(-1)?.name).toBe("jd-consolidator");
+			expect(send({ type: "REVIEW_CONSOLIDATED", receiptId: "c1", verdict: "FAIL", blockingFindings: 1 })).toBe("dispatch-fix");
+			expect(spawned.at(-1)?.name).toBe("jd-fix-agent");
+			expect(send({ type: "FIX_RECEIPT", receiptId: "fix1" })).toBe("dispatch-judges");
+			expect(spawned.slice(-2).map((agent) => agent.name)).toEqual(["jd-judge-a", "jd-judge-b"]);
+			expect(send({ type: "REVIEW_A", receiptId: "a2", correlationId: "r2-a" })).toBe("ignore");
+			expect(send({ type: "REVIEW_B", receiptId: "b2", correlationId: "r2-b" })).toBe("consolidate");
+			expect(send({ type: "REVIEW_CONSOLIDATED", receiptId: "c2", verdict: "PASS", blockingFindings: 0 })).toBe("ignore");
+			expect(send({ type: "REVIEW_FINAL", receiptId: "final", verdict: "PASS", blockingFindings: 0 })).toBe("complete");
+			expect(orch.getReviewState(change)).toMatchObject({ status: "COMPLETE", passed: true, round: 2 });
+			expect(send({ type: "REVIEW_A", receiptId: "duplicate-a", correlationId: "r2-a" })).toBe("ignore");
+			} finally {
+				rmSync(testCwd, { recursive: true, force: true });
+			}
 		});
 	});
 

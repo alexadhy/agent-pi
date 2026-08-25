@@ -27,6 +27,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
+  buildOpenSpecChangeContext,
+  buildCommanderSection,
+} from "./lib/mode-prompts.ts";
+import { fetchNativeStatus } from "./lib/openspec-native.ts";
+import {
   Text,
   visibleWidth,
   truncateToWidth,
@@ -57,9 +62,10 @@ import { statusButton } from "./lib/pipeline-render.ts";
 import { DEFAULT_SUBAGENT_MODEL } from "./lib/defaults.ts";
 import { resolveToolkitWorkerModel } from "./lib/toolkit-cli.ts";
 import {
+  displayName,
   loadAgentModelsConfig,
-  resolveAgentModelString,
-  type AgentModelsConfig,
+  scanAgentDefs,
+  type AgentDef,
 } from "./lib/agent-defs.ts";
 import {
   parseChainYaml,
@@ -69,114 +75,12 @@ import {
 
 // ── Types ────────────────────────────────────────
 
-interface AgentDef {
-  name: string;
-  description: string;
-  tools: string;
-  model: string; // full provider/model ID, empty = use default
-  systemPrompt: string;
-}
-
 interface StepState {
   agent: string;
   description: string;
   status: "pending" | "running" | "done" | "error";
   elapsed: number;
   lastWork: string;
-}
-
-// ── Display Name Helper ──────────────────────────
-
-function displayName(name: string): string {
-  return name
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
-// ── Frontmatter Parser ───────────────────────────
-
-function parseAgentFile(
-  filePath: string,
-  modelsConfig?: AgentModelsConfig,
-): AgentDef | null {
-  try {
-    const raw = readFileSync(filePath, "utf-8");
-    const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (!match) return null;
-
-    const frontmatter: Record<string, string> = {};
-    for (const line of match[1].split("\n")) {
-      const idx = line.indexOf(":");
-      if (idx > 0) {
-        frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-      }
-    }
-
-    if (!frontmatter.name) return null;
-
-    // Model resolution: models.json > frontmatter fallback > empty
-    let model = "";
-    if (modelsConfig) {
-      const key = frontmatter.name.toLowerCase();
-      const entry = modelsConfig.agents[key];
-      if (entry) {
-        model = resolveAgentModelString(frontmatter.name, modelsConfig);
-      }
-    }
-    if (!model && frontmatter.model) {
-      model = frontmatter.model;
-    }
-
-    return {
-      name: frontmatter.name,
-      description: frontmatter.description || "",
-      tools: frontmatter.tools || "read,grep,find,ls",
-      model,
-      systemPrompt: match[2].trim(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function scanAgentDirs(
-  cwd: string,
-  extProjectDir?: string,
-  modelsConfig?: AgentModelsConfig,
-): Map<string, AgentDef> {
-  const dirs = [
-    join(cwd, "agents"),
-    join(cwd, ".claude", "agents"),
-    join(cwd, ".pi", "agents"),
-    ...(extProjectDir
-      ? [join(extProjectDir, ".pi", "agents"), join(extProjectDir, "agents")]
-      : []),
-  ];
-
-  const agents = new Map<string, AgentDef>();
-
-  for (const dir of dirs) {
-    if (!existsSync(dir)) continue;
-    try {
-      const scan = (d: string) => {
-        for (const file of readdirSync(d, { withFileTypes: true })) {
-          const fullPath = resolve(d, file.name);
-          if (file.isDirectory()) {
-            scan(fullPath);
-          } else if (file.name.endsWith(".md")) {
-            const def = parseAgentFile(fullPath, modelsConfig);
-            if (def && !agents.has(def.name.toLowerCase())) {
-              agents.set(def.name.toLowerCase(), def);
-            }
-          }
-        }
-      };
-      scan(dir);
-    } catch {}
-  }
-
-  return agents;
 }
 
 // ── Extension ────────────────────────────────────
@@ -208,7 +112,7 @@ export default function (pi: ExtensionAPI) {
 
     // Load model config from .pi/agents/models.json, then scan agent .md files
     const modelsConfig = loadAgentModelsConfig(cwd, extProjectDir);
-    allAgents = scanAgentDirs(cwd, extProjectDir, modelsConfig);
+    allAgents = scanAgentDefs(cwd, extProjectDir, modelsConfig);
 
     agentSessions.clear();
     for (const [key] of allAgents) {
@@ -363,6 +267,10 @@ export default function (pi: ExtensionAPI) {
     const tasksExtPath = join(extDir, "tasks.ts");
     const footerExtPath = join(extDir, "footer.ts");
     const memoryCycleExtPath = join(extDir, "memory-cycle.ts");
+    const activeChange = fetchNativeStatus(ctx.cwd)?.changeName || null;
+    const scopedTask = activeChange
+      ? `${buildOpenSpecChangeContext(activeChange)}\n\n${task}`
+      : task;
     const args = [
       "--mode",
       "json",
@@ -390,7 +298,7 @@ export default function (pi: ExtensionAPI) {
       args.push("-c");
     }
 
-    args.push(task);
+    args.push(scopedTask);
 
     const textChunks: string[] = [];
     const startTime = Date.now();
@@ -495,7 +403,6 @@ export default function (pi: ExtensionAPI) {
   async function runChain(
     task: string,
     ctx: any,
-    reviewCycle = 0,
   ): Promise<{ output: string; success: boolean; elapsed: number }> {
     if (!activeChain) {
       return { output: "No chain active", success: false, elapsed: 0 };
@@ -568,14 +475,6 @@ export default function (pi: ExtensionAPI) {
 
       stepOutputs.push(result.output);
       input = result.output;
-    }
-
-    if (
-      activeChain.name === "judgment-day" &&
-      reviewCycle < 2 &&
-      !/\bPASS\b/i.test(input)
-    ) {
-      return runChain(task, ctx, reviewCycle + 1);
     }
 
     return { output: input, success: true, elapsed: Date.now() - chainStart };
@@ -1147,22 +1046,13 @@ export default function (pi: ExtensionAPI) {
       })
       .join("\n\n");
 
-    const commanderSection = `
-
-## Orchestrator Integration
-Use the orchestrator tools for dashboard visibility:
-- \`show_file { file_path: <path> }\` — display key files in the browser viewer
-- \`orch_task_add/list/update\` — track tasks in the orchestrator dashboard
-- \`mailbox_send\` — send status updates to other agents
-
-### Mailbox Protocol
-- Check your inbox periodically: \`mailbox_inbox { agent_name: "<your-name>" }\`
-- Send status at start, milestones, and completion
-- Warm, professional, collaborative tone — no emojis anywhere`;
+    const commanderSection = `${buildCommanderSection()}
+- \`show_file { file_path: <path> }\` — display key files in the browser viewer`;
 
     return {
       systemPrompt: `You are an agent with a sequential pipeline called "${activeChain.name}" at your disposal.${desc}
 You have full access to your own tools AND the run_chain tool to delegate to your team.
+${buildOpenSpecChangeContext(fetchNativeStatus(_ctx.cwd)?.changeName || null)}
 
     ## OpenSpec SDD (prefer the sdd-* chains)
 
