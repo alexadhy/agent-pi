@@ -1,7 +1,7 @@
 {
   "default": {
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash"
+    "provider": "minimax",
+    "model": "MiniMax-M3"
   },
   "agents": {
     "scout": {
@@ -45,8 +45,8 @@
       "model": "mimo-v2.5-pro"
     },
     "red-team": {
-      "provider": "opencode-go",
-      "model": "mimo-v2.5-pro"
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
     },
     "knight": {
       "provider": "openai-codex",

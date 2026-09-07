@@ -6,6 +6,7 @@ import { Type } from "@sinclair/typebox";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { outputLine } from "./lib/output-box.ts";
 import { generateDashboardHTML } from "./lib/orchestrator-dashboard-html.ts";
 import { validateMailboxReceipt } from "./lib/mailbox-types.ts";
@@ -303,6 +304,108 @@ export default function (pi: ExtensionAPI) {
   let reconciliationTimer: ReturnType<typeof setInterval> | undefined;
   const reviewStates = new Map<string, ReviewState>();
   const recoveredRounds = new Set<string>();
+  const ingestedMailboxMessages = new Set<string>();
+
+  // Short hash of the current session ID. Used to filter cross-instance
+  // receipts in ingestMailboxReceipts: a receipt tagged with a different
+  // session hash originated from another Pi process and is silently skipped.
+  // Falls back to a per-process tag (pid + startup time) when the SDK
+  // doesn't expose a session ID — keeps dispatch locks functional even in
+  // unusual invocations without ctx.sessionManager.
+  let sessionShortHash: string | undefined;
+  const processFallbackTag = `pid${process.pid}-${Date.now().toString(36).slice(-6)}`;
+
+  function getIsolationTag(): string | undefined {
+    if (sessionShortHash) return sessionShortHash;
+    if (process.env.PI_DISABLE_ISOLATION === "1") return undefined;
+    return processFallbackTag;
+  }
+
+  // Pattern matches "<role>-<hash>" where hash is 6-12 alphanumeric chars.
+  // Mirrors agent-mailbox.ts scopedSender output for canonical roles (exact
+  // names like "coordinator" / "implementor", or prefixes like
+  // "coordinator-*" / "implementor-*" / "jd-*" with arbitrary suffixes).
+  function extractSessionHash(from: string | undefined): string | undefined {
+    if (!from) return undefined;
+    const m = from.match(/-([a-zA-Z0-9]{6,12})$/);
+    return m ? m[1] : undefined;
+  }
+
+  // Per-instance dispatch lock. Writes <cwd>/.pi/dispatch-<change>-<hash>.lock
+  // and returns true if this session now owns dispatch for the change.
+  // Returns true (fail open) on filesystem errors so a misconfigured .pi/
+  // directory can't permanently strand a workflow.
+  function tryAcquireDispatchLock(change: string, sessionHash: string): boolean {
+    const ttl = configuredMilliseconds(
+      "PI_ORCHESTRATOR_DISPATCH_LOCK_TTL_MS",
+      60_000,
+    );
+    const lockDir = join(cwd, ".pi");
+    if (!existsSync(lockDir)) {
+      try { mkdirSync(lockDir, { recursive: true }); } catch { return true; }
+    }
+    const prefix = `dispatch-${change}-`;
+    try {
+      // Scan for any lock for this change from a different session
+      for (const f of readdirSync(lockDir)) {
+        if (!f.startsWith(prefix) || !f.endsWith(".lock")) continue;
+        const otherHash = f.slice(prefix.length, -".lock".length);
+        if (otherHash === sessionHash) continue; // our own lock — proceed
+        const lockPath = join(lockDir, f);
+        try {
+          const stamp = Number(readFileSync(lockPath, "utf-8").split(":")[1]);
+          if (Number.isFinite(stamp) && Date.now() - stamp < ttl) return false;
+        } catch {
+          // unreadable lock — treat as stale and let our write overwrite
+        }
+      }
+      // Write our lock. We don't need to delete existing locks from dead
+      // sessions; TTL expires them naturally on next read.
+      const ourLock = join(lockDir, `${prefix}${sessionHash}.lock`);
+      writeFileSync(ourLock, `${process.pid}:${Date.now()}`, "utf-8");
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  function ingestMailboxReceipts(): void {
+    // Read from the session-scoped mailbox root when we have an isolation tag.
+    // Each Pi instance now writes receipts under ~/.pi/mailbox/<tag>/sent/, so
+    // the orchestrator only needs to scan its own subtree. Falling back to the
+    // shared sent/ dir when no tag (legacy behavior) keeps tests working.
+    const isolationTag = getIsolationTag();
+    const sentRoots = isolationTag
+      ? [join(homedir(), ".pi", "mailbox", isolationTag, "sent")]
+      : [join(homedir(), ".pi", "mailbox", "sent")];
+
+    for (const sentDir of sentRoots) {
+      if (!existsSync(sentDir)) continue;
+      for (const file of readdirSync(sentDir).filter((name) => name.endsWith(".json")).sort()) {
+        if (ingestedMailboxMessages.has(file)) continue;
+        try {
+          const message = JSON.parse(readFileSync(join(sentDir, file), "utf-8")) as { id?: string; body?: string; from?: string };
+          if (!message.id || !message.body) continue;
+          // Cross-instance filter: skip receipts tagged for another session.
+          // Untagged custom senders (no hash suffix) pass through for back-compat.
+          if (isolationTag) {
+            const fromHash = extractSessionHash(message.from);
+            if (fromHash && fromHash !== isolationTag) continue;
+          }
+          const receipt = JSON.parse(message.body) as { change?: unknown };
+          if (typeof receipt.change !== "string" || !existsSync(join(cwd, "openspec", "changes", receipt.change))) continue;
+          ingestedMailboxMessages.add(file);
+          const result = globalThis.__piOrchestrator?.notifyMailbox(message);
+          // Note: we do NOT remove on "ignore". Malformed receipts (validation
+          // failures) are permanent — retrying just spams the log every tick.
+          // Transient parse errors are handled by the catch block above, which
+          // leaves the file out of the set so it is retried next tick.
+        } catch {
+          // A concurrently-written or malformed mailbox file is retried on the next tick.
+        }
+      }
+    }
+  }
 
   function dispatchReviewAction(review: ReviewState, action: string, dispatchId?: string, force = false): void {
     const runtime = globalThis.__piSubagentRuntime;
@@ -310,39 +413,59 @@ export default function (pi: ExtensionAPI) {
     const kind = action === "dispatch-judges" ? "judges" : action === "consolidate" ? "consolidate" : action === "dispatch-fix" ? "fix" : "";
     if (!kind) return;
     const key = dispatchId || dispatchKey(review.change, review.round, kind);
-    if (!force && !hasPendingReviewDispatch(cwd, review.change, key)) return;
+    if (!force && !hasPendingReviewDispatch(cwd, review.change, key, sessionShortHash)) return;
+
+    // Per-instance dispatch lock: another Pi instance on the same cwd may
+    // already own this change. Skip silently if a recent lock exists that
+    // doesn't belong to us. TTL bounds crashed-instance locks. The lock now
+    // works even without a real session ID because the per-process fallback
+    // tag gives us a stable identifier for the lifetime of this process.
+    const isolationTag = getIsolationTag();
+    if (!force && isolationTag && !tryAcquireDispatchLock(review.change, isolationTag)) return;
 
     const context = `OpenSpec change: ${review.change}. Review round ${review.round}/${review.maxRounds}. ` +
       "Use the mailbox receipt contract and include the exact correlationId in your receipt.";
+    const spawnWorker = (request: { name: string; task: string }): boolean => {
+      const result = runtime.spawn(request);
+      return !(typeof result === "string" && /not ready|failed|error/i.test(result));
+    };
     if (kind === "judges") {
       const task = `${context} Audit the entire implementation adversarially, assume it may be incorrect, and inspect the proposal, specs, design, tasks, affected source, integrations, and tests. Report concrete gaps, regressions, edge cases, and test gaps with evidence before considering PASS. Send the exact structured mailbox receipt required by your agent definition with correlationId ${key}.`;
-      runtime.spawn({ name: "jd-judge-a", task: `${task} Review independently as judge A. Your receipt type is REVIEW_A.` });
-      runtime.spawn({ name: "jd-judge-b", task: `${task} Review independently as judge B from a different angle. Your receipt type is REVIEW_B.` });
-      markReviewDispatch(cwd, review.change, key);
+      const judgeA = spawnWorker({ name: "jd-judge-a", task: `${task} Review independently as judge A. Your receipt type is REVIEW_A.` });
+      const judgeB = spawnWorker({ name: "jd-judge-b", task: `${task} Review independently as judge B from a different angle. Your receipt type is REVIEW_B.` });
+      if (judgeA && judgeB) markReviewDispatch(cwd, review.change, key, sessionShortHash);
       return;
     }
     if (kind === "consolidate") {
-      runtime.spawn({ name: "jd-consolidator", task: `${context} Read both judge receipts and audit the entire current implementation again. Reconcile only evidence-backed findings, verify fixes and tests, and send the exact structured REVIEW_CONSOLIDATED followed by REVIEW_FINAL receipts. The final receipt must include verdict PASS only after verifying the current tree and tests and confirming zero blocking findings; otherwise include every confirmed blocker and verdict FAIL. CorrelationId: ${key}.` });
-      markReviewDispatch(cwd, review.change, key);
+      const consolidated = spawnWorker({ name: "jd-consolidator", task: `${context} Read both judge receipts and audit the entire current implementation again. Reconcile only evidence-backed findings, verify fixes and tests, and send the exact structured REVIEW_CONSOLIDATED followed by REVIEW_FINAL receipts. The final receipt must include verdict PASS only after verifying the current tree and tests and confirming zero blocking findings; otherwise include every confirmed blocker and verdict FAIL. CorrelationId: ${key}.` });
+      if (consolidated) markReviewDispatch(cwd, review.change, key, sessionShortHash);
       return;
     }
-    runtime.spawn({
+    const fix = spawnWorker({
       name: "jd-fix-agent",
       task: `${context} Read REVIEW_CONSOLIDATED, fix every confirmed blocking finding, run focused tests, and send a FIX_RECEIPT with correlationId ${key}.`,
     });
-    markReviewDispatch(cwd, review.change, key);
+    if (fix) markReviewDispatch(cwd, review.change, key, sessionShortHash);
   }
 
   function recoverReviews(): void {
+    ingestMailboxReceipts();
     const changesDir = join(cwd, "openspec", "changes");
     if (!existsSync(changesDir)) return;
     const timeout = configuredMilliseconds("PI_ORCHESTRATOR_ROUND_TIMEOUT_MS", DEFAULT_ROUND_TIMEOUT_MS);
     for (const entry of readdirSync(changesDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const review = loadReviewState(cwd, entry.name);
+      let review: ReviewState;
+      try {
+        review = loadReviewState(cwd, entry.name, undefined, sessionShortHash);
+      } catch (error) {
+        if (/locked|busy/i.test(String(error))) continue;
+        console.warn(`[orch] Review recovery failed for ${entry.name}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
       reviewStates.set(entry.name, review);
       for (const key of review.dispatchIds) {
-        if (hasPendingReviewDispatch(cwd, review.change, key)) {
+        if (hasPendingReviewDispatch(cwd, review.change, key, sessionShortHash)) {
           const kind = key.split(":").pop();
           const action = kind === "judges" ? "dispatch-judges" : kind === "consolidate" ? "consolidate" : "dispatch-fix";
           dispatchReviewAction(review, action, key);
@@ -355,7 +478,7 @@ export default function (pi: ExtensionAPI) {
         review.judgeA = false;
         review.judgeB = false;
         review.updatedAt = new Date().toISOString();
-        saveReviewState(cwd, review);
+        saveReviewState(cwd, review, sessionShortHash);
         recoveredRounds.add(recoveryKey);
         dispatchReviewAction(review, "dispatch-judges", undefined, true);
       } else if (review.status === "BLOCKED" && review.round < review.maxRounds) {
@@ -397,7 +520,11 @@ export default function (pi: ExtensionAPI) {
       const source = message.id || "unknown-message";
       let receipt: ReviewReceipt;
       try {
-        const parsed: unknown = JSON.parse(message.body || "");
+        const parsed: any = JSON.parse(message.body || "");
+        // Accept structured receipt details while keeping the internal contract string-based.
+        if (parsed && typeof parsed === "object" && parsed.body !== undefined && typeof parsed.body !== "string") {
+          parsed.body = JSON.stringify(parsed.body);
+        }
         const transportValidation = validateMailboxReceipt(parsed);
         if (!transportValidation.valid) {
           console.warn(`[orch] Ignoring malformed receipt ${source}: ${transportValidation.reason}`);
@@ -413,10 +540,11 @@ export default function (pi: ExtensionAPI) {
         console.warn(`[orch] Ignoring unexpected receipt ${source}: ${validation.reason}`);
         return "ignore";
       }
+      if (message.id) ingestedMailboxMessages.add(`${message.id}.json`);
       try {
         // Reload on every receipt: this makes a new Pi process resume the
         // durable coordinator rather than starting a second review loop.
-        const result = processReviewReceipt(cwd, { ...receipt, id: receipt.receiptId || receipt.id || message.id });
+        const result = processReviewReceipt(cwd, { ...receipt, id: receipt.receiptId || receipt.id || message.id }, undefined, sessionShortHash);
         reviewStates.set(receipt.change, result.state);
         dispatchReviewAction(result.state, result.action, result.dispatchIds[0]);
         return result.action;
@@ -657,6 +785,14 @@ Examples:
     cwd = ctx.cwd;
     state = loadState(cwd);
 
+    // Capture short session hash for cross-instance receipt filtering.
+    // Mirrors agent-mailbox.ts — both extensions derive the hash from the
+    // same session ID so senders and receivers agree on the tag.
+    const sid = ctx?.sessionManager?.getSessionId?.();
+    if (sid) {
+      sessionShortHash = sid.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || sid.slice(0, 8);
+    }
+
     // Merge with existing tasks from tasks.ts if we have a group-less task list
     const taskList = globalThis.__piTaskList;
     if (taskList?.tasks && state.groups.length === 0) {
@@ -673,10 +809,14 @@ Examples:
       const count = state.groups.length;
       ctx.ui.setStatus("orch", count > 0 ? `${count} groups` : undefined);
     }
-    recoverReviews();
+    try { recoverReviews(); }
+    catch (error) { console.warn(`[orch] Review recovery deferred: ${error instanceof Error ? error.message : String(error)}`); }
     if (reconciliationTimer) clearInterval(reconciliationTimer);
     reconciliationTimer = setInterval(
-      recoverReviews,
+      () => {
+        try { recoverReviews(); }
+        catch (error) { console.warn(`[orch] Review reconciliation deferred: ${error instanceof Error ? error.message : String(error)}`); }
+      },
       configuredMilliseconds("PI_ORCHESTRATOR_RECONCILIATION_INTERVAL_MS", DEFAULT_RECONCILIATION_INTERVAL_MS),
     );
     reconciliationTimer.unref?.();

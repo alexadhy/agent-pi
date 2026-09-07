@@ -53,14 +53,26 @@ export function validateMailboxReceipt(value: unknown): ValidationResult {
   if (!isRecord(value)) return { valid: false, reason: "receipt must be an object" };
   if (typeof value.change !== "string" || !value.change.trim()) return { valid: false, reason: "missing change" };
   if (typeof value.type !== "string" || !value.type.trim()) return { valid: false, reason: "missing receipt type" };
-  for (const field of ["receiptId", "correlationId", "id", "body", "verdict"]) {
+  for (const field of ["receiptId", "correlationId", "id", "verdict"]) {
     if (value[field] !== undefined && typeof value[field] !== "string") {
       return { valid: false, reason: `${field} must be a string` };
     }
   }
-  if (value.blockingFindings !== undefined &&
-      (typeof value.blockingFindings !== "number" || !Number.isFinite(value.blockingFindings))) {
-    return { valid: false, reason: "blockingFindings must be a finite number" };
+  if (value.body !== undefined && typeof value.body !== "string" && !isRecord(value.body)) {
+    return { valid: false, reason: "body must be a string or object" };
+  }
+  // blockingFindings is a COUNT (number), but multiple agent types have been
+  // observed sending an array of finding descriptions. Accept both shapes:
+  // - number (finite): use as-is
+  // - array: treat length as the count (the actual findings belong in `body`)
+  // Anything else is a true error.
+  if (value.blockingFindings !== undefined) {
+    const bf = value.blockingFindings;
+    if (Array.isArray(bf)) {
+      (value as Record<string, unknown>).blockingFindings = bf.length;
+    } else if (typeof bf !== "number" || !Number.isFinite(bf)) {
+      return { valid: false, reason: "blockingFindings must be a finite number or array of findings" };
+    }
   }
   return { valid: true };
 }

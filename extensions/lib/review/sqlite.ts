@@ -16,8 +16,13 @@ export function reviewStatePath(cwd: string, change: string): string {
   return join(cwd, "openspec", "changes", change, "review-state.json");
 }
 
-export function reviewLedgerPath(cwd: string): string {
-  return join(cwd, "openspec", ".review-ledger.sqlite");
+// Session-scoped ledger path: when a Pi instance has captured a session hash,
+// the SQLite file lives under its own name so a second Pi on the same cwd
+// never reads or writes the same review state. Without a hash, the legacy
+// shared path is used (back-compat for tests / unusual invocations).
+export function reviewLedgerPath(cwd: string, sessionHash?: string): string {
+  const base = join(cwd, "openspec", ".review-ledger");
+  return sessionHash ? `${base}-${sessionHash}.sqlite` : `${base}.sqlite`;
 }
 
 function stateFromRow(row: any, change: string): ReviewState {
@@ -40,11 +45,13 @@ function stateFromRow(row: any, change: string): ReviewState {
 export class ReviewLedger {
   readonly db: any;
   readonly cwd: string;
+  readonly sessionHash: string | undefined;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, sessionHash?: string) {
     this.cwd = cwd;
-    mkdirSync(dirname(reviewLedgerPath(cwd)), { recursive: true });
-    this.db = new DatabaseSync(reviewLedgerPath(cwd));
+    this.sessionHash = sessionHash;
+    mkdirSync(dirname(reviewLedgerPath(cwd, sessionHash)), { recursive: true });
+    this.db = new DatabaseSync(reviewLedgerPath(cwd, sessionHash));
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS review_changes (
@@ -85,14 +92,24 @@ export class ReviewLedger {
   close(): void { this.db.close(); }
 
   private transaction<T>(fn: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = fn();
-      this.db.exec("COMMIT");
-      return result;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
+    for (let attempt = 0; ; attempt++) {
+      let began = false;
+      try {
+        this.db.exec("BEGIN IMMEDIATE");
+        began = true;
+        const result = fn();
+        this.db.exec("COMMIT");
+        return result;
+      } catch (error) {
+        if (began) {
+          try { this.db.exec("ROLLBACK"); } catch {}
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        const locked = /database is locked|database table is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(message);
+        if (!locked || attempt >= 2) throw error;
+        // Small synchronous backoff; node:sqlite DatabaseSync APIs are synchronous.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
+      }
     }
   }
 

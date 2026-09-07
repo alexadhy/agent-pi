@@ -152,6 +152,25 @@ export default function (pi: ExtensionAPI) {
   let gridCols = 2;
   let widgetCtx: any;
   let sessionDir = "";
+
+  // Wrap widgetCtx.ui access in try/catch so a stale extension ctx (after
+  // ctx.newSession/fork/switchSession/reload) doesn't crash Pi when a
+  // long-running callback fires. The setInterval timer in spawnAgent is
+  // the worst offender — without this, every tick after a session reload
+  // throws uncaughtException. Widget work is cosmetic; dropping it on
+  // stale ctx is fine.
+  function safeUi<T>(fn: () => T): T | undefined {
+    try {
+      return fn();
+    } catch (error) {
+      if (/stale after session replacement/i.test(String(error))) return undefined;
+      throw error;
+    }
+  }
+  const safeNotify = (msg: string, level?: any) =>
+    safeUi(() => (widgetCtx?.ui?.notify ? widgetCtx.ui.notify(msg, level) : undefined));
+  const safeSetWidget = (key: string, value: any) =>
+    safeUi(() => (widgetCtx?.ui?.setWidget ? widgetCtx.ui.setWidget(key, value) : undefined));
   let contextWindow = 0;
   let widgetCompact = true;
   let selectedAgentIndex = -1; // -1 = no selection
@@ -261,7 +280,7 @@ export default function (pi: ExtensionAPI) {
   function registerAgentWidget(state: AgentState) {
     if (!widgetCtx) return;
     const key = `agent-${state.widgetId}`;
-    widgetCtx.ui.setWidget(key, (_tui: any, theme: any) => {
+    safeSetWidget(key, (_tui: any, theme: any) => {
       const bgFn = (text: string): string => {
         const bg = STATUS_BG[state.status] || STATUS_BG.running;
         return `${bg}${WHITE_BOLD}${text}${RESET_ALL}${RESET_BG}`;
@@ -310,14 +329,14 @@ export default function (pi: ExtensionAPI) {
 
   function removeAgentWidget(state: AgentState) {
     if (!widgetCtx) return;
-    widgetCtx.ui.setWidget(`agent-${state.widgetId}`, undefined);
+    safeSetWidget(`agent-${state.widgetId}`, undefined);
     agentWidgetBoxes.delete(state.widgetId);
   }
 
   function removeAllAgentWidgets() {
     if (!widgetCtx) return;
     for (const state of agentStates.values()) {
-      widgetCtx.ui.setWidget(`agent-${state.widgetId}`, undefined);
+      safeSetWidget(`agent-${state.widgetId}`, undefined);
     }
     agentWidgetBoxes.clear();
   }
@@ -330,7 +349,7 @@ export default function (pi: ExtensionAPI) {
     // Task list widget (above editor)
     const taskList = (globalThis as any).__piTaskList as TaskListInfo | null;
     if (taskList && taskList.tasks.length > 0) {
-      widgetCtx.ui.setWidget(
+      safeSetWidget(
         "agent-team",
         (_tui: any, theme: any) => {
           const text = new Text("", 0, 0);
@@ -383,7 +402,7 @@ export default function (pi: ExtensionAPI) {
       );
     } else {
       // No task list — remove the combined widget
-      widgetCtx.ui.setWidget("agent-team", undefined);
+      safeSetWidget("agent-team", undefined);
     }
 
     // Individual agent widgets are managed separately via registerAgentWidget/invalidateAgentWidget
@@ -1385,7 +1404,7 @@ ${agentCatalog}${commanderSection}`,
   pi.on("session_switch", async (_event, _ctx) => {
     // /new fires session_switch — clear all agent boxes from previous session
     if (widgetCtx) {
-      widgetCtx.ui.setWidget("agent-team", undefined);
+      safeSetWidget("agent-team", undefined);
     }
     removeAllAgentWidgets();
     widgetCtx = _ctx;
@@ -1401,7 +1420,7 @@ ${agentCatalog}${commanderSection}`,
     applyExtensionDefaults(import.meta.url, _ctx);
     // Clear widgets from previous session
     if (widgetCtx) {
-      widgetCtx.ui.setWidget("agent-team", undefined);
+      safeSetWidget("agent-team", undefined);
     }
     removeAllAgentWidgets();
     widgetCtx = _ctx;

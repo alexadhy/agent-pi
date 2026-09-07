@@ -122,6 +122,23 @@ export default function (pi: ExtensionAPI) {
   let widgetCtx: any;
   const widgetBoxes = new Map<number, { invalidate: () => void }>();
 
+  // Wrap ctx.ui access in try/catch so a stale extension ctx (after
+  // ctx.newSession/fork/switchSession/reload) doesn't crash Pi when a
+  // long-running subagent's callback fires. The widget work is best-effort
+  // cosmetic — silently dropping it on stale ctx is fine.
+  function safeUi<T>(fn: () => T): T | undefined {
+    try {
+      return fn();
+    } catch (error) {
+      if (/stale after session replacement/i.test(String(error))) return undefined;
+      throw error;
+    }
+  }
+  const safeNotify = (msg: string, level?: any) =>
+    safeUi(() => (widgetCtx?.ui?.notify ? widgetCtx.ui.notify(msg, level) : undefined));
+  const safeSetWidget = (key: string, value: any) =>
+    safeUi(() => (widgetCtx?.ui?.setWidget ? widgetCtx.ui.setWidget(key, value) : undefined));
+
   // ── Agent definition registry (loaded from .md files + models.json) ───────
   // Maps lowercase agent names to their definitions. Model assignments come from
   // .pi/agents/models.json — not from .md frontmatter. When subagent_create is
@@ -278,7 +295,7 @@ export default function (pi: ExtensionAPI) {
           state.textChunks.push(
             `\n[TIMEOUT] Agent timed out after ${mins} minutes.`,
           );
-          ctx.ui.notify(
+          safeNotify(
             `SA${state.id} (${state.name}) timed out after ${mins}m`,
             "warning",
           );
@@ -324,7 +341,7 @@ export default function (pi: ExtensionAPI) {
 
         // Standby spawns (warmup) suppress notification and follow-up message
         if (!state.standby) {
-          ctx.ui.notify(
+          safeNotify(
             `SA${state.id} (${state.name}) ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
             state.status === "done" ? "success" : "error",
           );
@@ -346,7 +363,7 @@ export default function (pi: ExtensionAPI) {
         if (state.autoRemove !== false) {
           setTimeout(() => {
             if (agents.has(state.id) && state.status !== "running") {
-              ctx.ui.setWidget(`sub-${state.id}`, undefined);
+              safeSetWidget(`sub-${state.id}`, undefined);
               widgetBoxes.delete(state.id);
               agents.delete(state.id);
             }

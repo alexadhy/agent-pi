@@ -36,4 +36,5 @@ commands/private/
 .atl/
 
 # Generated review ledger
+openspec/.review-ledger.sqlite
 extensions/openspec/.review-ledger.sqlite

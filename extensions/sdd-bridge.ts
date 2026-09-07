@@ -355,6 +355,13 @@ const output = JSON.stringify(status, null, 2);
     async execute(_toolCallId, params, _signal, onUpdate, ctx) {
       const { args } = params as { args: string[] };
 
+      if (["archive", "sync"].includes(args[0]) && args[1] && !hasDurableReviewPass(ctx.cwd, args[1])) {
+        return {
+          content: [{ type: "text" as const, text: `${args[0]} blocked: ${args[1]} requires durable REVIEW_FINAL PASS.` }],
+          details: { status: "blocked", code: 1, args },
+        };
+      }
+
       if (!openspecAvailable()) {
         return {
           content: [
@@ -643,8 +650,24 @@ pi.registerCommand("sdd-status", {
           }
 
           const reviewBlock = artifactId === "apply"
-            ? "\n\nMANDATORY JUDGMENT DAY: After implementing every task, send an IMPLEMENTATION_RECEIPT to the mailbox with the active change, requirements, diff, changed files, and test output. Dispatch two separate adversarial subagents using `subagent_create_batch`: `jd-judge-a` and `jd-judge-b`. Each judge must send REVIEW_A or REVIEW_B receipts to the implementor. Consolidate findings, send a REVIEW_CONSOLIDATED receipt, and dispatch the implementor/fix agent to address confirmed blocking findings. Repeat the receipt-driven judge/fix cycle until REVIEW_FINAL is PASS, with a maximum of 3 cycles. Do not report completion while confirmed blocking defects remain."
+            ? "\n\nMANDATORY REVIEW: After implementing every task, send exactly one structured IMPLEMENTATION_RECEIPT to the mailbox with the active change, requirements, diff, changed files, and exact test output. The durable coordinator automatically dispatches two independent adversarial judges, consolidates their receipts, and dispatches bounded fixes when needed. Do not manually spawn judges or claim completion until a durable REVIEW_FINAL PASS is received."
             : "";
+
+          const dispatchTask = `Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change's existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}${tddBlock}${reviewBlock}`;
+          let automaticDispatch = "";
+          let automaticApply = false;
+          if (artifactId === "apply") {
+            const runtime = globalThis.__piSubagentRuntime;
+            if (runtime?.spawn) {
+              const result = runtime.spawn({ name: "sdd-apply", task: dispatchTask });
+              automaticApply = !(typeof result === "string" && /not ready|failed|error/i.test(result));
+              automaticDispatch = automaticApply
+                ? `\nAutomatic apply dispatch: ${typeof result === "string" ? result : "started"}`
+                : "\nAutomatic apply dispatch blocked because worker startup failed.";
+            } else {
+              automaticDispatch = "\nAutomatic apply dispatch blocked because the subagent runtime is unavailable.";
+            }
+          }
 
           return [
             `Active change: ${status.activeChange}`,
@@ -652,9 +675,14 @@ pi.registerCommand("sdd-status", {
             `Artifact paths:`,
             ...Object.entries(status.artifactPaths || {}).map(([k, v]) => `  - ${k}: ${v}`),
             status.taskProgress ? `Tasks: ${status.taskProgress.done}/${status.taskProgress.total} done` : "",
+            automaticDispatch,
             "",
             `Dispatch prompt:`,
-            `  subagent_create({ name: "${next}", task: "Continue the SDD ${artifactId} phase for change '${status.activeChange}'. Read the change\'s existing artifacts and the native guidance below, then produce the next artifact. Follow the Result Contract: status, executive_summary, artifacts, next_recommended, risks, skill_resolution.${instructionsBlock}${tddBlock}${reviewBlock}" })`,
+            automaticApply
+              ? "  Apply worker started automatically; the coordinator owns subsequent review dispatch."
+              : artifactId === "apply"
+                ? "  Apply blocked: the subagent runtime is unavailable. Load the full agent-pi extension package first."
+                : `  subagent_create({ name: "${next}", task: ${JSON.stringify(dispatchTask)} })`,
           ]
             .filter(Boolean)
             .join("\n");
